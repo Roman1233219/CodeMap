@@ -3,29 +3,39 @@
 <head>
     <style>
         body { background: #ffffff; margin: 0; overflow: hidden; font-family: sans-serif; }
-        #canvas-container { width: 100vw; height: 100vh; position: relative; }
+        #canvas-container { width: 100vw; height: 100vh; position: relative; cursor: grab; background: #fafafa; }
+        #canvas-container:active { cursor: grabbing; }
         svg { width: 100%; height: 100%; display: block; }
 
-        .bus-call { stroke: green; stroke-width: 3px; }
-        .bus-data { stroke: navy; stroke-width: 3px; }
+        .bus-call-bg { stroke: green; stroke-width: 4px; opacity: 0.1; }
+        .bus-data-bg { stroke: navy; stroke-width: 4px; opacity: 0.1; }
 
         .block-rect { fill: #ffffff; stroke: #000000; stroke-width: 1.5px; }
         .block-text { font-size: 13px; text-anchor: middle; dominant-baseline: middle; fill: #333; font-weight: bold; pointer-events: none; }
 
+        /* Исходные цвета сегментов */
         .line-out-call { stroke: #008000; }
         .line-in-call { stroke: #ffd700; }
         .line-out-data { stroke: #000080; }
         .line-in-data { stroke: #00bfff; }
-        .line-bus-core { stroke: #ff0000; }
+        .line-bus-core { stroke: #ff0000; stroke-width: 1.5px; }
 
-        .conn-segment { fill: none; opacity: 0.6; stroke-width: 1px; }
-        .conn-group:hover .conn-segment { opacity: 1 !important; stroke-width: 1.5px; }
+        .conn-segment { fill: none; opacity: 0.7; stroke-width: 1px; pointer-events: none; }
 
-        .merged-5 { stroke-width: 5px !important; }
-        .merged-10 { stroke-width: 10px !important; }
+        /* ПОДСВЕТКА: ВСЯ СВЯЗЬ КРАСНЕЕТ ПРИ НАВЕДЕНИИ */
+        .conn-group:hover .conn-segment, .conn-group.active .conn-segment {
+            stroke: #ff0000 !important;
+            stroke-width: 2.5px !important;
+            opacity: 1 !important;
+        }
 
-        .dot { fill: #000; r: 2; opacity: 0.8; }
-        .dot:hover { r: 4; fill: #ff0000; cursor: crosshair; }
+        .merged-5 .conn-segment { stroke-width: 5px; opacity: 0.8; }
+        .merged-10 .conn-segment { stroke-width: 10px; opacity: 1; }
+
+        .hit-area { fill: none; stroke: transparent; stroke-width: 12px; pointer-events: stroke; cursor: pointer; }
+
+        .dot { fill: #000; r: 2.5; pointer-events: all; }
+        .dot:hover { r: 5; fill: #ff0000; cursor: pointer; }
 
         .tooltip {
             position: absolute; background: rgba(0,0,0,0.9); color: #fff; padding: 8px 12px;
@@ -37,43 +47,30 @@
 <body>
     <div id="canvas-container">
         <div id="tooltip" class="tooltip"></div>
-        <svg id="main-svg" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid meet">
-            <line class="bus-call" x1="0" y1="60" x2="1200" y2="60" />
-            <line class="bus-data" x1="0" y1="540" x2="1200" y2="540" />
-            <g id="connections-layer"></g>
-            <g id="blocks-layer">
-                <g transform="translate(20, 275)">
-                    <rect class="block-rect" width="180" height="50" />
-                    <text class="block-text" x="90" y="25">1. Presentation</text>
+        <svg id="main-svg">
+            <g id="viewport">
+                <!-- Фоны шин -->
+                <line class="bus-call-bg" x1="-5000" y1="80" x2="5000" y2="80" />
+                <line class="bus-data-bg" x1="-5000" y1="520" x2="5000" y2="520" />
+
+                <g id="connections-layer"></g>
+
+                <g id="blocks-layer">
+                    <!-- Статичные блоки ( viewbox 1200x600 ) -->
+                    <g transform="translate(20, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">1. Presentation</text></g>
+                    <g transform="translate(215, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">2. Domain</text></g>
+                    <g transform="translate(410, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">3. Data</text></g>
+                    <g transform="translate(605, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">4. Infrastructure</text></g>
+                    <g transform="translate(800, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">5. DI</text></g>
+                    <g transform="translate(995, 275)"><rect class="block-rect" width="185" height="50" /><text class="block-text" x="92" y="25">6. Common / Utils</text></g>
                 </g>
-                <g transform="translate(215, 275)">
-                    <rect class="block-rect" width="180" height="50" />
-                    <text class="block-text" x="90" y="25">2. Domain</text>
-                </g>
-                <g transform="translate(410, 275)">
-                    <rect class="block-rect" width="180" height="50" />
-                    <text class="block-text" x="90" y="25">3. Data</text>
-                </g>
-                <g transform="translate(605, 275)">
-                    <rect class="block-rect" width="180" height="50" />
-                    <text class="block-text" x="90" y="25">4. Infrastructure</text>
-                </g>
-                <g transform="translate(800, 275)">
-                    <rect class="block-rect" width="180" height="50" />
-                    <text class="block-text" x="90" y="25">5. DI</text>
-                </g>
-                <g transform="translate(995, 275)">
-                    <rect class="block-rect" width="185" height="50" />
-                    <text class="block-text" x="92" y="25">6. Common / Utils</text>
-                </g>
+                <g id="dots-layer"></g>
             </g>
-            <g id="dots-layer"></g>
         </svg>
     </div>
 
     <script>
         window.INITIAL_DATA = null;
-
         const blockConfig = {
             "Presentation": { x: 20, y: 275, w: 180, h: 50 },
             "Domain": { x: 215, y: 275, w: 180, h: 50 },
@@ -83,9 +80,43 @@
             "Common / Utils": { x: 995, y: 275, w: 185, h: 50 }
         };
 
+        const viewport = document.getElementById('viewport');
         const connLayer = document.getElementById('connections-layer');
         const dotsLayer = document.getElementById('dots-layer');
         const tooltip = document.getElementById('tooltip');
+        const svg = document.getElementById('main-svg');
+
+        // --- ZOOM & PAN LOGIC ---
+        let scale = 1, tx = 0, ty = 0;
+        const container = document.getElementById('canvas-container');
+
+        container.onwheel = (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            const pt = svg.createSVGPoint();
+            pt.x = e.clientX; pt.y = e.clientY;
+            const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+            tx = svgP.x - (svgP.x - tx) * delta;
+            ty = svgP.y - (svgP.y - ty) * delta;
+            scale *= delta;
+            updateTransform();
+        };
+
+        let isDragging = false, lastX, lastY;
+        container.onmousedown = (e) => { if(e.button === 0) { isDragging = true; lastX = e.clientX; lastY = e.clientY; } };
+        window.onmousemove = (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - lastX; const dy = e.clientY - lastY;
+            tx += dx; ty += dy;
+            lastX = e.clientX; lastY = e.clientY;
+            updateTransform();
+        };
+        window.onmouseup = () => isDragging = false;
+
+        function updateTransform() {
+            viewport.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+        }
 
         window.initData = function(data) {
             window.INITIAL_DATA = data;
@@ -93,12 +124,9 @@
         };
 
         function draw() {
-            if (!window.INITIAL_DATA || !window.INITIAL_DATA.blocks) return;
-            connLayer.innerHTML = "";
-            dotsLayer.innerHTML = "";
-
-            const busCallY = 60;
-            const busDataY = 540;
+            if (!INITIAL_DATA || !INITIAL_DATA.blocks) return;
+            connLayer.innerHTML = ""; dotsLayer.innerHTML = "";
+            const busCallY = 80, busDataY = 520;
 
             const connections = [];
             Object.entries(INITIAL_DATA.blocks).forEach(([srcCat, sub]) => {
@@ -111,11 +139,7 @@
                                         const targetFile = call.targetLocation.split(" > ")[0];
                                         const targetCat = findCatByFile(targetFile);
                                         if (targetCat && targetCat !== srcCat) {
-                                            connections.push({
-                                                src: srcCat, tgt: targetCat,
-                                                type: call.type,
-                                                label: file.fileName + " : " + m.name + " — " + call.targetLocation
-                                            });
+                                            connections.push({ src: srcCat, tgt: targetCat, type: call.type, label: file.fileName + " : " + m.name + " — " + call.targetLocation });
                                         }
                                     }
                                 });
@@ -133,35 +157,32 @@
             });
 
             Object.entries(groups).forEach(([key, list]) => {
+                const count = list.length;
                 const isData = list[0].type === "REQUEST";
                 const busY = isData ? busDataY : busCallY;
-                const count = list.length;
+                let cls = (count > 50) ? "merged-10" : (count > 10 ? "merged-5" : "");
 
-                let thicknessClass = "";
-                if (count > 50) thicknessClass = "merged-10";
-                else if (count > 10) thicknessClass = "merged-5";
-
-                if (thicknessClass) {
-                    renderBundle(list[0].src, list[0].tgt, busY, isData, thicknessClass, list, true);
+                if (cls) {
+                    renderPath(list[0].src, list[0].tgt, busY, isData, cls, list, true);
                 } else {
-                    list.forEach((conn, i) => {
-                        renderBundle(list[0].src, list[0].tgt, busY, isData, "", [conn], false, i);
+                    list.forEach((item, i) => {
+                        renderPath(list[0].src, list[0].tgt, busY, isData, "", [item], false, i, count);
                     });
                 }
             });
         }
 
-        function renderBundle(srcId, tgtId, busY, isData, cls, items, merged, index = 0) {
-            const src = blockConfig[srcId];
-            const tgt = blockConfig[tgtId];
+        function renderPath(srcId, tgtId, busY, isData, cls, items, merged, index = 0, total = 1) {
+            const src = blockConfig[srcId]; const tgt = blockConfig[tgtId];
             if (!src || !tgt) return;
 
             const centerX_src = src.x + src.w / 2;
             const centerX_tgt = tgt.x + tgt.w / 2;
-            const offset = merged ? 10 : (index * 3);
 
-            const xOut = Math.min(src.x + offset, centerX_src - 2);
-            const xIn = Math.max(tgt.x + tgt.w - offset, centerX_tgt + 2);
+            // Расчет X: Исходящие (влево от центра), Входящие (вправо от центра)
+            const step = total > 1 ? (src.w / 2 - 10) / total : 0;
+            const xOut = Math.min(src.x + (index * step), centerX_src - 2);
+            const xIn = Math.max(tgt.x + tgt.w - (index * step), centerX_tgt + 2);
 
             const startY = isData ? (src.y + src.h) : src.y;
             const endY = isData ? (tgt.y + tgt.h) : tgt.y;
@@ -169,55 +190,58 @@
             const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
             g.setAttribute("class", "conn-group " + cls);
 
-            const outSeg = createSeg(`M ${xOut} ${startY} L ${xOut} ${busY}`, isData ? "line-out-data" : "line-out-call");
-            const busSeg = createSeg(`M ${xOut} ${busY} L ${xIn} ${busY}`, "line-bus-core");
-            const inSeg = createSeg(`M ${xIn} ${busY} L ${xIn} ${endY}`, isData ? "line-in-data" : "line-in-call");
+            const outPath = createSeg(`M ${xOut} ${startY} L ${xOut} ${busY}`, isData ? "line-out-data" : "line-out-call");
+            const busPath = createSeg(`M ${xOut} ${busY} L ${xIn} ${busY}`, "line-bus-core");
+            const inPath = createSeg(`M ${xIn} ${busY} L ${xIn} ${endY}`, isData ? "line-in-data" : "line-in-call");
 
-            g.append(outSeg, busSeg, inSeg);
-            const title = merged ? (items.length + " связей") : items[0].label;
+            const hitArea = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            hitArea.setAttribute("d", `M ${xOut} ${startY} L ${xOut} ${busY} L ${xIn} ${busY} L ${xIn} ${endY}`);
+            hitArea.setAttribute("class", "hit-area");
+
+            g.append(outPath, busPath, inPath, hitArea);
+            const txt = merged ? (items.length + " связей") : items[0].label;
 
             g.onmouseenter = (e) => {
                 if (merged) {
-                    g.style.opacity = "0.1";
+                    g.style.display = "none";
                     items.forEach((it, i) => {
-                        const sub = renderBundle(srcId, tgtId, busY, isData, "", [it], false, i);
-                        sub.classList.add('active-exp');
+                        const sub = renderPath(srcId, tgtId, busY, isData, "", [it], false, i, items.length);
+                        sub.classList.add('active-expansion');
                         connLayer.appendChild(sub);
                     });
                 } else {
-                    showTooltip(e, title);
+                    showTooltip(e, txt);
                 }
             };
 
             g.onmouseleave = () => {
                 tooltip.style.visibility = "hidden";
-                document.querySelectorAll('.active-exp').forEach(el => el.remove());
-                g.style.opacity = "1";
+                if (merged) {
+                    document.querySelectorAll('.active-expansion').forEach(el => el.remove());
+                    g.style.display = "inline";
+                }
             };
 
             connLayer.appendChild(g);
             if (!merged) {
-                createDot(xOut, startY, title);
-                createDot(xIn, endY, title);
-                createDot(xOut, busY, title);
-                createDot(xIn, busY, title);
+                createDot(xOut, startY, txt); createDot(xIn, endY, txt);
+                createDot(xOut, busY, txt); createDot(xIn, busY, txt);
             }
             return g;
         }
 
         function createSeg(d, cls) {
             const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            p.setAttribute("d", d);
-            p.setAttribute("class", "conn-segment " + cls);
+            p.setAttribute("d", d); p.setAttribute("class", "conn-segment " + cls);
             return p;
         }
 
-        function createDot(x, y, t) {
-            const d = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-            d.setAttribute("cx", x); d.setAttribute("cy", y);
-            d.setAttribute("class", "dot");
-            d.onmouseenter = (e) => showTooltip(e, t);
-            dotsLayer.appendChild(d);
+        function createDot(x, y, txt) {
+            const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+            dot.setAttribute("class", "dot");
+            dot.onmouseenter = (e) => showTooltip(e, txt);
+            dotsLayer.appendChild(dot);
         }
 
         function findCatByFile(name) {
@@ -228,12 +252,10 @@
             return null;
         }
 
-        function showTooltip(e, t) {
-            tooltip.innerText = t; tooltip.style.visibility = "visible";
+        function showTooltip(e, txt) {
+            tooltip.innerText = txt; tooltip.style.visibility = "visible";
             tooltip.style.left = (e.clientX + 15) + "px"; tooltip.style.top = (e.clientY + 15) + "px";
         }
-
-        document.addEventListener('DOMContentLoaded', () => { if (window.INITIAL_DATA) draw(); });
     </script>
 </body>
 </html>
