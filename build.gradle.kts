@@ -29,7 +29,7 @@ repositories {
 val localProperties = Properties().apply {
     val propsFile = File(projectDir, "local.properties")
     if (propsFile.exists()) {
-        propsFile.inputStream().use { load(it) }
+        load(propsFile.inputStream())
     }
 }
 
@@ -38,15 +38,13 @@ val studioPath = localProperties.getProperty("intellij.localPath") ?: "D:/Androi
 dependencies {
     intellijPlatform {
         local(file(studioPath))
-        
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.android")
         bundledPlugin("org.jetbrains.kotlin")
         
-        instrumentationTools()
+        // Явно запрашиваем JBR для работы JCEF
+        jetbrainsRuntime()
     }
-    
-    // Добавляем стандартные библиотеки Kotlin для компиляции
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.1.0")
     implementation("org.jetbrains.kotlin:kotlin-reflect:2.1.0")
 }
@@ -56,30 +54,28 @@ intellijPlatform {
         id.set("com.example.codemap")
         name.set("CodeMap")
         version.set("1.0.0")
-        
         ideaVersion {
-            // Устанавливаем 253 согласно вашей версии IDE (2025.3 Panda)
             sinceBuild.set("253")
             untilBuild.set(null as String?)
         }
-
         vendor {
             name.set("Example Vendor")
             email.set("support@example.com")
         }
     }
-    instrumentCode.set(true)
 }
 
 tasks {
     named<RunIdeTask>("runIde") {
-        // Форсируем режим K2 и обходим проверку совместимости
+        // Принудительно включаем нужные флаги в песочнице
         jvmArgumentProviders.add(
             CommandLineArgumentProvider {
                 listOf(
                     "-Didea.kotlin.plugin.use.k2=true",
                     "-Dkotlin.k2.plugin.enabled=true",
-                    "-Didea.ignore.disabled.plugins=true"
+                    "-Didea.ignore.disabled.plugins=true",
+                    "-Dide.browser.jcef.enabled=true",
+                    "-Dide.browser.jcef.sandbox.enabled=false"
                 )
             }
         )

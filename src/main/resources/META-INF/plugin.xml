@@ -25,7 +25,6 @@
                     icon="/icons/spider.svg" />
     </extensions>
 
-    <!-- Официальная декларация поддержки K2 для Kotlin-плагина -->
     <extensions defaultExtensionNs="org.jetbrains.kotlin">
         <supportsKotlinPluginMode supportsK2="true"/>
     </extensions>

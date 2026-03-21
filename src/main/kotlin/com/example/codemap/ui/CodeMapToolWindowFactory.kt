@@ -1,154 +1,96 @@
 package com.example.codemap.ui
 
 import com.example.codemap.CodeMap.data.CodeMapCore
-import com.example.codemap.CodeMap.data.CodeMapData
+import com.google.gson.Gson
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
-import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
-import com.intellij.util.ui.JBUI
+import com.intellij.ui.jcef.JBCefApp
+import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.ui.jcef.JBCefJSQuery
+import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
+import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.*
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import javax.swing.*
-import javax.swing.border.LineBorder
 
 class CodeMapToolWindowFactory : ToolWindowFactory {
 
     private lateinit var core: CodeMapCore
-    private lateinit var mainContainer: JBPanel<*>
-    private lateinit var cardLayout: CardLayout
-    private val categories = listOf("Presentation", "Domain", "Data", "Infrastructure", "DI", "Common/Utils")
+    private lateinit var mainPanel: JBPanel<*>
+    private lateinit var progressBar: JProgressBar
+    private lateinit var scanBtn: JButton
+    private lateinit var showBtn: JButton
+    private var browser: JBCefBrowser? = null
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         core = CodeMapCore(project)
-        cardLayout = CardLayout()
-        mainContainer = JBPanel<JBPanel<*>>(cardLayout)
+        mainPanel = JBPanel<JBPanel<*>>(BorderLayout())
 
-        val placeholder = JBPanel<JBPanel<*>>(GridBagLayout()).apply {
-            add(JBLabel("Нажмите 'Сканировать', чтобы увидеть структуру блоков"))
+        if (!JBCefApp.isSupported()) {
+            mainPanel.add(JBLabel("JCEF не поддерживается в этой среде.", SwingConstants.CENTER))
+            val content = ContentFactory.getInstance().createContent(mainPanel, "", false)
+            toolWindow.contentManager.addContent(content)
+            return
         }
-        mainContainer.add(placeholder, "EMPTY")
 
-        val gridWrapper = JBPanel<JBPanel<*>>(BorderLayout())
-        mainContainer.add(gridWrapper, "GRID")
+        browser = JBCefBrowser()
 
-        val detailsPanel = JBPanel<JBPanel<*>>(BorderLayout())
-        mainContainer.add(detailsPanel, "DETAILS")
-
-        val wrapper = JBPanel<JBPanel<*>>(BorderLayout())
-        wrapper.add(createTopControls {
-            val data = core.buildMapOnTheFly()
-            gridWrapper.removeAll()
-            gridWrapper.add(MapPanel(data))
-            gridWrapper.revalidate()
-            cardLayout.show(mainContainer, "GRID")
-        }, BorderLayout.NORTH)
-        
-        wrapper.add(mainContainer, BorderLayout.CENTER)
-
-        val content = ContentFactory.getInstance().createContent(wrapper, "", false)
-        toolWindow.contentManager.addContent(content)
-        cardLayout.show(mainContainer, "EMPTY")
-    }
-
-    private fun createTopControls(onShowMap: () -> Unit): JPanel {
-        return JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-            val scanBtn = JButton("Сканировать")
-            val showBtn = JButton("Показать карту")
-            val exportBtn = JButton("Экспорт на стол")
-            
-            scanBtn.addActionListener {
-                scanBtn.isEnabled = false
-                core.refreshDatabase { 
-                    scanBtn.isEnabled = true
-                    onShowMap()
-                }
-            }
-            showBtn.addActionListener { onShowMap() }
-            exportBtn.addActionListener { core.exportToDesktop() }
-
-            add(scanBtn); add(showBtn); add(exportBtn)
+        val controls = JPanel(FlowLayout(FlowLayout.LEFT))
+        scanBtn = JButton("Спарсить данные")
+        showBtn = JButton("Показать визуализацию")
+        progressBar = JProgressBar(0, 100).apply {
+            isStringPainted = true
+            preferredSize = Dimension(150, 20)
         }
-    }
 
-    private inner class MapPanel(val mapData: CodeMapData) : JPanel(GridLayout(2, 3, 20, 20)) {
-        init {
-            border = JBUI.Borders.empty(20)
-            background = Color.WHITE
-            categories.forEach { name ->
-                val subBlocks = mapData.blocks[name]
-                val totalFiles = subBlocks?.values?.sumOf { it.size } ?: 0
-                add(createCategoryBlock(name, totalFiles))
-            }
-        }
-    }
-
-    private fun createCategoryBlock(name: String, fileCount: Int) = JPanel(BorderLayout()).apply {
-        border = LineBorder(Color.BLACK, 2)
-        background = Color.LIGHT_GRAY
-        val label = JLabel("<html><center>${name.uppercase()}<br>($fileCount файлов)</center></html>", SwingConstants.CENTER)
-        label.font = Font("Arial", Font.BOLD, 14)
-        add(label, BorderLayout.CENTER)
-        
-        addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent?) { showDetails(name) }
-        })
-    }
-
-    private fun showDetails(categoryName: String) {
-        val mapData = core.buildMapOnTheFly()
-        // Извлекаем все файлы из всех подблоков данной категории
-        val allFiles = mapData.blocks[categoryName]?.values?.flatten() ?: emptyList()
-        
-        val panel = mainContainer.getComponent(2) as JPanel
-        panel.removeAll()
-        panel.layout = BorderLayout()
-        
-        val header = JPanel(BorderLayout())
-        header.add(JButton("← Назад").apply {
-            addActionListener { cardLayout.show(mainContainer, "GRID") }
-        }, BorderLayout.WEST)
-        header.add(JLabel("Блок: $categoryName", SwingConstants.CENTER), BorderLayout.CENTER)
-        panel.add(header, BorderLayout.NORTH)
-        
-        val stack = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            background = Color.WHITE
-            allFiles.forEach { file ->
-                val fileRow = JPanel(BorderLayout()).apply {
-                    maximumSize = Dimension(1200, 100); border = LineBorder(Color.GRAY, 1)
-                    background = Color(240, 240, 240)
-                    
-                    val methodsInfo = StringBuilder("<html>")
-                    methodsInfo.append("<i>Group: ${file.subBlock}</i><br>")
-                    file.classes.forEach { clazz ->
-                        methodsInfo.append("<b>Class: ${clazz.name}</b><br>")
-                        clazz.methods.forEach { method ->
-                            val actions = method.calls.count { it.type == "ACTION" }
-                            val requests = method.calls.count { it.type == "REQUEST" }
-                            methodsInfo.append("&nbsp;&nbsp;- ${method.name} (A: $actions, R: $requests)<br>")
-                        }
+        scanBtn.addActionListener {
+            scanBtn.isEnabled = false
+            showBtn.isEnabled = false
+            core.refreshDatabase(
+                onProgress = { p -> SwingUtilities.invokeLater { progressBar.value = p } },
+                onFinished = {
+                    SwingUtilities.invokeLater {
+                        scanBtn.isEnabled = true
+                        showBtn.isEnabled = true
                     }
-                    methodsInfo.append("</html>")
-                    
-                    add(JLabel("${file.fileName}"), BorderLayout.NORTH)
-                    add(JLabel(methodsInfo.toString()), BorderLayout.CENTER)
-                    
-                    addMouseListener(object : MouseAdapter() {
-                        override fun mouseClicked(e: MouseEvent) {
-                            if (e.clickCount == 2) core.openProjectFile(file.path)
-                        }
-                    })
                 }
-                add(fileRow)
-                add(Box.createRigidArea(Dimension(0, 10)))
-            }
+            )
         }
-        panel.add(JBScrollPane(stack), BorderLayout.CENTER)
-        panel.revalidate(); cardLayout.show(mainContainer, "DETAILS")
+
+        showBtn.addActionListener {
+            val jsonData = core.getJsonData()
+            if (jsonData == "{}") return@addActionListener
+            
+            // Используем Gson для безопасного экранирования всего JSON
+            val safeJson = Gson().toJson(jsonData)
+            
+            val htmlStream = javaClass.getResourceAsStream("/webapp/index.html")
+            val htmlText = htmlStream?.bufferedReader()?.use { it.readText() } ?: "<h1>Error</h1>"
+            
+            // Добавляем обработчик загрузки, чтобы впрыснуть данные как только страница готова
+            browser?.jbCefClient?.addLoadHandler(object : CefLoadHandlerAdapter() {
+                override fun onLoadEnd(browser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
+                    if (frame?.isMain == true) {
+                        browser?.executeJavaScript(
+                            "window.initData(JSON.parse($safeJson));", 
+                            browser.url, 0
+                        )
+                    }
+                }
+            }, browser!!.cefBrowser)
+
+            browser?.loadHTML(htmlText)
+        }
+
+        controls.add(scanBtn); controls.add(progressBar); controls.add(showBtn)
+        mainPanel.add(controls, BorderLayout.NORTH)
+        mainPanel.add(browser!!.component, BorderLayout.CENTER)
+
+        val content = ContentFactory.getInstance().createContent(mainPanel, "", false)
+        toolWindow.contentManager.addContent(content)
     }
 }

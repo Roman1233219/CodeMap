@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { background: #ffffff; margin: 0; overflow: hidden; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: relative; }
+        svg { width: 100%; height: 100%; display: block; }
+
+        .bus-call { stroke: green; stroke-width: 3px; }
+        .bus-data { stroke: navy; stroke-width: 3px; }
+
+        .block-rect { fill: #ffffff; stroke: #000000; stroke-width: 1.5px; }
+        .block-text { font-size: 13px; text-anchor: middle; dominant-baseline: middle; fill: #333; font-weight: bold; pointer-events: none; }
+
+        .line-out-call { stroke: #008000; }
+        .line-in-call { stroke: #ffd700; }
+        .line-out-data { stroke: #000080; }
+        .line-in-data { stroke: #00bfff; }
+        .line-bus-core { stroke: #ff0000; }
+
+        .conn-segment { fill: none; opacity: 0.6; stroke-width: 1px; }
+        .conn-group:hover .conn-segment { opacity: 1 !important; stroke-width: 1.5px; }
+
+        .merged-5 { stroke-width: 5px !important; }
+        .merged-10 { stroke-width: 10px !important; }
+
+        .dot { fill: #000; r: 2; opacity: 0.8; }
+        .dot:hover { r: 4; fill: #ff0000; cursor: crosshair; }
+
+        .tooltip {
+            position: absolute; background: rgba(0,0,0,0.9); color: #fff; padding: 8px 12px;
+            border-radius: 4px; font-size: 12px; pointer-events: none; visibility: hidden; z-index: 1000;
+            white-space: nowrap; border: 1px solid #ff0000;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <div id="tooltip" class="tooltip"></div>
+        <svg id="main-svg" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid meet">
+            <line class="bus-call" x1="0" y1="60" x2="1200" y2="60" />
+            <line class="bus-data" x1="0" y1="540" x2="1200" y2="540" />
+            <g id="connections-layer"></g>
+            <g id="blocks-layer">
+                <g transform="translate(20, 275)">
+                    <rect class="block-rect" width="180" height="50" />
+                    <text class="block-text" x="90" y="25">1. Presentation</text>
+                </g>
+                <g transform="translate(215, 275)">
+                    <rect class="block-rect" width="180" height="50" />
+                    <text class="block-text" x="90" y="25">2. Domain</text>
+                </g>
+                <g transform="translate(410, 275)">
+                    <rect class="block-rect" width="180" height="50" />
+                    <text class="block-text" x="90" y="25">3. Data</text>
+                </g>
+                <g transform="translate(605, 275)">
+                    <rect class="block-rect" width="180" height="50" />
+                    <text class="block-text" x="90" y="25">4. Infrastructure</text>
+                </g>
+                <g transform="translate(800, 275)">
+                    <rect class="block-rect" width="180" height="50" />
+                    <text class="block-text" x="90" y="25">5. DI</text>
+                </g>
+                <g transform="translate(995, 275)">
+                    <rect class="block-rect" width="185" height="50" />
+                    <text class="block-text" x="92" y="25">6. Common / Utils</text>
+                </g>
+            </g>
+            <g id="dots-layer"></g>
+        </svg>
+    </div>
+
+    <script>
+        window.INITIAL_DATA = null;
+
+        const blockConfig = {
+            "Presentation": { x: 20, y: 275, w: 180, h: 50 },
+            "Domain": { x: 215, y: 275, w: 180, h: 50 },
+            "Data": { x: 410, y: 275, w: 180, h: 50 },
+            "Infrastructure": { x: 605, y: 275, w: 180, h: 50 },
+            "DI": { x: 800, y: 275, w: 180, h: 50 },
+            "Common / Utils": { x: 995, y: 275, w: 185, h: 50 }
+        };
+
+        const connLayer = document.getElementById('connections-layer');
+        const dotsLayer = document.getElementById('dots-layer');
+        const tooltip = document.getElementById('tooltip');
+
+        window.initData = function(data) {
+            window.INITIAL_DATA = data;
+            draw();
+        };
+
+        function draw() {
+            if (!window.INITIAL_DATA || !window.INITIAL_DATA.blocks) return;
+            connLayer.innerHTML = "";
+            dotsLayer.innerHTML = "";
+
+            const busCallY = 60;
+            const busDataY = 540;
+
+            const connections = [];
+            Object.entries(INITIAL_DATA.blocks).forEach(([srcCat, sub]) => {
+                Object.values(sub).forEach(files => {
+                    files.forEach(file => {
+                        file.classes.forEach(cls => {
+                            cls.methods.forEach(m => {
+                                m.calls.forEach(call => {
+                                    if (call.targetId && call.targetLocation) {
+                                        const targetFile = call.targetLocation.split(" > ")[0];
+                                        const targetCat = findCatByFile(targetFile);
+                                        if (targetCat && targetCat !== srcCat) {
+                                            connections.push({
+                                                src: srcCat, tgt: targetCat,
+                                                type: call.type,
+                                                label: file.fileName + " : " + m.name + " — " + call.targetLocation
+                                            });
+                                        }
+                                    }
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+
+            const groups = {};
+            connections.forEach(c => {
+                const key = c.src + "_" + c.tgt + "_" + c.type;
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(c);
+            });
+
+            Object.entries(groups).forEach(([key, list]) => {
+                const isData = list[0].type === "REQUEST";
+                const busY = isData ? busDataY : busCallY;
+                const count = list.length;
+
+                let thicknessClass = "";
+                if (count > 50) thicknessClass = "merged-10";
+                else if (count > 10) thicknessClass = "merged-5";
+
+                if (thicknessClass) {
+                    renderBundle(list[0].src, list[0].tgt, busY, isData, thicknessClass, list, true);
+                } else {
+                    list.forEach((conn, i) => {
+                        renderBundle(list[0].src, list[0].tgt, busY, isData, "", [conn], false, i);
+                    });
+                }
+            });
+        }
+
+        function renderBundle(srcId, tgtId, busY, isData, cls, items, merged, index = 0) {
+            const src = blockConfig[srcId];
+            const tgt = blockConfig[tgtId];
+            if (!src || !tgt) return;
+
+            const centerX_src = src.x + src.w / 2;
+            const centerX_tgt = tgt.x + tgt.w / 2;
+            const offset = merged ? 10 : (index * 3);
+
+            const xOut = Math.min(src.x + offset, centerX_src - 2);
+            const xIn = Math.max(tgt.x + tgt.w - offset, centerX_tgt + 2);
+
+            const startY = isData ? (src.y + src.h) : src.y;
+            const endY = isData ? (tgt.y + tgt.h) : tgt.y;
+
+            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            g.setAttribute("class", "conn-group " + cls);
+
+            const outSeg = createSeg(`M ${xOut} ${startY} L ${xOut} ${busY}`, isData ? "line-out-data" : "line-out-call");
+            const busSeg = createSeg(`M ${xOut} ${busY} L ${xIn} ${busY}`, "line-bus-core");
+            const inSeg = createSeg(`M ${xIn} ${busY} L ${xIn} ${endY}`, isData ? "line-in-data" : "line-in-call");
+
+            g.append(outSeg, busSeg, inSeg);
+            const title = merged ? (items.length + " связей") : items[0].label;
+
+            g.onmouseenter = (e) => {
+                if (merged) {
+                    g.style.opacity = "0.1";
+                    items.forEach((it, i) => {
+                        const sub = renderBundle(srcId, tgtId, busY, isData, "", [it], false, i);
+                        sub.classList.add('active-exp');
+                        connLayer.appendChild(sub);
+                    });
+                } else {
+                    showTooltip(e, title);
+                }
+            };
+
+            g.onmouseleave = () => {
+                tooltip.style.visibility = "hidden";
+                document.querySelectorAll('.active-exp').forEach(el => el.remove());
+                g.style.opacity = "1";
+            };
+
+            connLayer.appendChild(g);
+            if (!merged) {
+                createDot(xOut, startY, title);
+                createDot(xIn, endY, title);
+                createDot(xOut, busY, title);
+                createDot(xIn, busY, title);
+            }
+            return g;
+        }
+
+        function createSeg(d, cls) {
+            const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            p.setAttribute("d", d);
+            p.setAttribute("class", "conn-segment " + cls);
+            return p;
+        }
+
+        function createDot(x, y, t) {
+            const d = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            d.setAttribute("cx", x); d.setAttribute("cy", y);
+            d.setAttribute("class", "dot");
+            d.onmouseenter = (e) => showTooltip(e, t);
+            dotsLayer.appendChild(d);
+        }
+
+        function findCatByFile(name) {
+            if (!window.INITIAL_DATA) return null;
+            for (const [cat, sub] of Object.entries(window.INITIAL_DATA.blocks)) {
+                for (const files of Object.values(sub)) { if (files.some(f => f.fileName === name)) return cat; }
+            }
+            return null;
+        }
+
+        function showTooltip(e, t) {
+            tooltip.innerText = t; tooltip.style.visibility = "visible";
+            tooltip.style.left = (e.clientX + 15) + "px"; tooltip.style.top = (e.clientY + 15) + "px";
+        }
+
+        document.addEventListener('DOMContentLoaded', () => { if (window.INITIAL_DATA) draw(); });
+    </script>
+</body>
+</html>
