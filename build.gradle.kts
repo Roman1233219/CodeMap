@@ -1,6 +1,7 @@
 import java.util.Properties
 import java.io.File
 import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask
 
 plugins {
     id("java")
@@ -9,9 +10,8 @@ plugins {
 }
 
 group = "com.example.codemap"
-version = "1.0-SNAPSHOT"
+version = "1.0.0"
 
-// Возвращаем Java 17 для поддержки более старых IDE
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(17))
@@ -37,34 +37,58 @@ val studioPath = localProperties.getProperty("intellij.localPath") ?: "D:/Androi
 
 dependencies {
     intellijPlatform {
-        // Если на диске D очень новая Студия (253), она может конфликтовать с Java 17.
-        // Для максимальной совместимости лучше указывать версию явно, 
-        // но оставим local, раз вы хотите использовать именно её.
         local(file(studioPath))
         
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.android")
+        bundledPlugin("org.jetbrains.kotlin")
+        
+        instrumentationTools()
     }
+    
+    // Добавляем стандартные библиотеки Kotlin для компиляции
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.1.0")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:2.1.0")
 }
 
 intellijPlatform {
     pluginConfiguration {
         id.set("com.example.codemap")
         name.set("CodeMap")
+        version.set("1.0.0")
+        
+        ideaVersion {
+            // Устанавливаем 253 согласно вашей версии IDE (2025.3 Panda)
+            sinceBuild.set("253")
+            untilBuild.set(null as String?)
+        }
+
+        vendor {
+            name.set("Example Vendor")
+            email.set("support@example.com")
+        }
     }
+    instrumentCode.set(true)
 }
 
 tasks {
-    patchPluginXml {
-        // Устанавливаем поддержку с версии 2023.2 (Java 17)
-        sinceBuild.set("232")
-        untilBuild.set(null as String?) // Убираем ограничение сверху
+    named<RunIdeTask>("runIde") {
+        // Форсируем режим K2 и обходим проверку совместимости
+        jvmArgumentProviders.add(
+            CommandLineArgumentProvider {
+                listOf(
+                    "-Didea.kotlin.plugin.use.k2=true",
+                    "-Dkotlin.k2.plugin.enabled=true",
+                    "-Didea.ignore.disabled.plugins=true"
+                )
+            }
+        )
     }
 
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions {
-            jvmTarget = "17"
-            freeCompilerArgs = listOf("-Xskip-metadata-version-check")
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            freeCompilerArgs.add("-Xskip-metadata-version-check")
         }
     }
 }

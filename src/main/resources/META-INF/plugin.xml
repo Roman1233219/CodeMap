@@ -1,21 +1,19 @@
 <idea-plugin>
     <id>com.example.codemap</id>
     <name>CodeMap</name>
-    <vendor email="support@example.com" url="https://www.example.com">Example Vendor</vendor>
+    <vendor email="support@example.com">Example Vendor</vendor>
 
-    <description><![CDATA[
-    A simple code map plugin for Android Studio.
-    ]]></description>
+    <description>A smart code map plugin for Android Studio compatible with K2.</description>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>
     <depends>com.intellij.modules.androidstudio</depends>
+    <depends>org.jetbrains.kotlin</depends>
 
     <actions>
         <action id="com.example.codemap.HelloAction"
                 class="com.example.codemap.HelloAction"
-                text="Hello CodeMap"
-                description="Greets the user">
+                text="Hello CodeMap">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>
@@ -25,5 +23,10 @@
                     anchor="left"
                     factoryClass="com.example.codemap.ui.CodeMapToolWindowFactory"
                     icon="/icons/spider.svg" />
+    </extensions>
+
+    <!-- Официальная декларация поддержки K2 для Kotlin-плагина -->
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK2="true"/>
     </extensions>
 </idea-plugin>

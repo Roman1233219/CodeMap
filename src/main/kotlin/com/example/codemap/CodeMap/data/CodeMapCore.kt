@@ -1,159 +1,279 @@
 package com.example.codemap.CodeMap.data
 
 import com.google.gson.GsonBuilder
-import com.google.gson.reflect.TypeToken
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
+import org.jetbrains.kotlin.psi.*
+import org.jetbrains.kotlin.psi.psiUtil.getChildrenOfType
 import java.io.File
+import com.intellij.openapi.ui.Messages
 
-data class RawFile(
-    val fileName: String,
-    val filePath: String,
-    val fileType: String,
-    val classes: List<RawClass>,
-    val externalReferences: List<String>,
-    val isVirtual: Boolean = false
+// --- Структура JSON (3 уровня + Ранжирование) ---
+
+data class CallNode(
+    val targetName: String,
+    val targetId: String?,
+    val targetLocation: String?,
+    val type: String,         // ACTION или REQUEST
+    val text: String
 )
 
-data class RawClass(val name: String, val methods: List<String>)
+data class MethodNode(
+    val id: String,
+    val name: String,
+    val tooltip: String,
+    val calls: List<CallNode>
+)
 
-data class Connection(val from: String, val to: String, val type: String, var weight: Int = 0)
+data class ClassNode(
+    val name: String,
+    val fqName: String?,
+    val type: String,
+    val methods: List<MethodNode>
+)
 
-data class MapData(val blocks: Map<String, List<MapNode>>, val connections: List<Connection>)
+data class FileNode(
+    val fileName: String,
+    val path: String,
+    val subBlock: String,
+    val classes: List<ClassNode>,
+    var importanceScore: Int = 0
+)
 
-data class MapNode(val name: String, val path: String, val internalStructure: RawFile)
+data class CodeMapData(
+    val blocks: Map<String, MutableMap<String, MutableList<FileNode>>> = mapOf(
+        "Presentation" to mutableMapOf(),
+        "Domain" to mutableMapOf(),
+        "Data" to mutableMapOf(),
+        "Infrastructure" to mutableMapOf(),
+        "DI" to mutableMapOf(),
+        "Common/Utils" to mutableMapOf()
+    )
+)
 
 class CodeMapCore(private val project: Project) {
     private val gson = GsonBuilder().setPrettyPrinting().create()
-    private val dbPath = "${project.basePath}/.idea/codemap_db.json"
+    private val dbPath = "${project.basePath}/.idea/codemap_smart_db.json"
 
     fun refreshDatabase(onFinished: () -> Unit) {
         ApplicationManager.getApplication().executeOnPooledThread {
-            val resultFiles = mutableListOf<RawFile>()
+            val smartData = CodeMapData()
             ApplicationManager.getApplication().runReadAction {
-                val baseDir = LocalFileSystem.getInstance().findFileByPath(project.basePath!!)
-                if (baseDir != null) deepScan(baseDir, PsiManager.getInstance(project), resultFiles)
+                val basePath = project.basePath ?: return@runReadAction
+                val baseDir = LocalFileSystem.getInstance().findFileByPath(basePath)
+                if (baseDir != null) scanProject(baseDir, smartData)
             }
-            File(dbPath).writeText(gson.toJson(resultFiles))
+            rankAndSortFiles(smartData)
+            File(dbPath).writeText(gson.toJson(smartData))
             ApplicationManager.getApplication().invokeLater { onFinished() }
         }
     }
 
-    private fun deepScan(vFile: VirtualFile, psiManager: PsiManager, result: MutableList<RawFile>) {
+    private fun rankAndSortFiles(data: CodeMapData) {
+        data.blocks.values.forEach { subBlocks ->
+            subBlocks.values.forEach { fileList ->
+                fileList.forEach { it.importanceScore = calculateImportance(it) }
+                fileList.sortByDescending { it.importanceScore }
+            }
+        }
+    }
+
+    private fun calculateImportance(file: FileNode): Int {
+        var score = 0
+        val name = file.fileName
+        val allCalls = file.classes.flatMap { it.methods }.flatMap { it.calls }
+        when {
+            name.contains("MainActivity") -> score += 2000
+            name.contains("Activity") -> score += 1500
+            name.contains("Fragment") || name.contains("Screen") -> score += 1000
+            name.contains("ViewModel") -> score += 800
+            name.contains("Repository") -> score += 600
+            name.contains("Service") || name.contains("Manager") -> score += 500
+        }
+        score += allCalls.size * 10
+        return score
+    }
+
+    private fun scanProject(vFile: VirtualFile, data: CodeMapData) {
         if (vFile.isDirectory) {
-            vFile.children.forEach { deepScan(it, psiManager, result) }
+            val name = vFile.name
+            if (name == "build" || name.startsWith(".") || name == "test" || name == "androidTest") return
+            vFile.children.forEach { scanProject(it, data) }
             return
         }
+        val path = vFile.path.replace("\\", "/")
+        if (path.contains("/src/test/") || path.contains("/src/androidTest/")) return
         val ext = vFile.extension?.lowercase() ?: ""
-        if (ext !in listOf("kt", "java", "xml")) return
+        if (ext != "kt" && ext != "java") return
 
-        ApplicationManager.getApplication().runReadAction {
-            val psiFile = psiManager.findFile(vFile) ?: return@runReadAction
-            val classes = mutableListOf<RawClass>()
-            val refs = mutableSetOf<String>()
-
-            // Собираем классы
-            PsiTreeUtil.findChildrenOfType(psiFile, PsiClass::class.java).forEach { 
-                classes.add(RawClass(it.name ?: "Unknown", it.methods.map { m -> m.name }))
-            }
-
-            // Ищем любые упоминания системных классов и внешних связей
-            val text = psiFile.text
-            if (text.contains("SharedPreferences") || text.contains("getSharedPreferences")) refs.add("SharedPreferences")
-            if (text.contains("Room") || text.contains("Dao")) refs.add("RoomDatabase")
-            if (text.contains("Retrofit") || text.contains("Http")) refs.add("NetworkAPI")
-
-            psiFile.accept(object : PsiRecursiveElementVisitor() {
-                override fun visitElement(element: PsiElement) {
-                    if (element is PsiReference) {
-                        val res = element.resolve()
-                        if (res is PsiClass) res.name?.let { refs.add(it) }
-                    }
-                    super.visitElement(element)
-                }
-            })
-            result.add(RawFile(vFile.name, vFile.path, ext.uppercase(), classes, refs.toList()))
-        }
-    }
-
-    fun buildMapOnTheFly(): MapData {
-        val dbFile = File(dbPath)
-        if (!dbFile.exists()) return MapData(emptyMap(), emptyList())
-        val rawFiles: List<RawFile> = gson.fromJson(dbFile.readText(), object : TypeToken<List<RawFile>>() {}.type)
+        val psiFile = PsiManager.getInstance(project).findFile(vFile) ?: return
+        val (category, subBlock) = resolveCategoryAndSubBlock(psiFile)
         
-        val blocks = mutableMapOf<String, MutableList<MapNode>>()
-        val itemToCat = mutableMapOf<String, String>()
-
-        // 1. Реальные файлы
-        for (f in rawFiles) {
-            val cat = when {
-                f.fileType == "XML" || f.fileName.lowercase().contains("activity") || f.fileName.lowercase().contains("fragment") -> "Экраны"
-                else -> determineCategoryByName(f.fileName + f.classes.joinToString { it.name })
-            }
-            blocks.getOrPut(cat) { mutableListOf() }.add(MapNode(f.fileName, f.filePath, f))
-            itemToCat[f.fileName] = cat
-            f.classes.forEach { itemToCat[it.name] = cat }
-        }
-
-        // 2. Виртуальные системные файлы
-        rawFiles.flatMap { it.externalReferences }.distinct().forEach { ref ->
-            if (itemToCat[ref] == null) {
-                val cat = determineCategoryByName(ref)
-                if (cat != "Прочее") {
-                    itemToCat[ref] = cat
-                    val vFile = RawFile(ref, "virtual", "SYS", emptyList(), emptyList(), true)
-                    blocks.getOrPut(cat) { mutableListOf() }.add(MapNode("[System] $ref", "virtual", vFile))
-                }
-            }
-        }
-
-        // 3. Связи
-        val conns = mutableMapOf<String, Connection>()
-        for (f in rawFiles) {
-            val from = itemToCat[f.fileName] ?: continue
-            f.externalReferences.forEach { ref ->
-                val to = itemToCat[ref] ?: return@forEach
-                if (from != to) {
-                    val key = "${from}_${to}"
-                    val type = if (from == "Экраны") "EVENT" else "ACTION"
-                    conns.getOrPut(key) { Connection(from, to, type) }.weight++
-                }
-            }
-        }
-        return MapData(blocks, conns.values.toList())
+        val fileNode = parseFile(psiFile, subBlock)
+        data.blocks[category]?.getOrPut(subBlock) { mutableListOf() }?.add(fileNode)
     }
 
-    private fun determineCategoryByName(name: String): String {
-        val low = name.lowercase()
-        return when {
-            low.contains("activity") || low.contains("fragment") || low.contains("view") || low.contains("screen") || low.contains("layout") || low.contains("adapter") || low.contains("viewmodel") -> "Экраны"
-            low.contains("manager") || low.contains("service") || low.contains("usecase") || low.contains("controller") -> "Логика"
-            low.contains("repository") || low.contains("database") || low.contains("dao") || low.contains("prefs") || low.contains("sharedpreferences") || low.contains("entity") || low.contains("model") -> "Данные"
-            low.contains("api") || low.contains("network") || low.contains("retrofit") || low.contains("http") || low.contains("client") -> "Сеть"
-            low.contains("utils") || low.contains("helper") || low.contains("base") || low.contains("ext") -> "Утилиты"
-            else -> "Прочее"
+    private fun resolveCategoryAndSubBlock(file: PsiFile): Pair<String, String> {
+        val path = file.virtualFile.path.replace("\\", "/")
+        val fileName = file.name
+        val text = file.text
+
+        // 1. ЖЕСТКИЕ ИСКЛЮЧЕНИЯ (Приоритет 1)
+        if (path.contains("/on-device-server/") || fileName == "LabelResolver.java" || path.contains("LogkatTracer")) {
+            return Pair("Common/Utils", "system-tools")
+        }
+
+        // 2. ИЕРАРХИЯ ПО ПУТИ (Приоритет 2)
+        val category = when {
+            // Infrastructure (Сенсоры, Сервисы, Ресиверы)
+            path.contains("/core/bluetooth/") || path.contains("/core/services/") || 
+            path.contains("/receiver/") || fileName == "StepManager.kt" || 
+            fileName == "StepResetReceiver.kt" || fileName == "BleManager.kt" -> "Infrastructure"
+
+            // Presentation (UI)
+            path.contains("/ui/") || path.contains("/screens/") || 
+            path.contains("/components/") || fileName == "MainActivity.kt" -> "Presentation"
+
+            // Domain / Data / DI
+            path.contains("/domain/") -> "Domain"
+            path.contains("/data/") || path.contains("/db/") || path.contains("/repository/") -> "Data"
+            path.contains("/di/") -> "DI"
+
+            else -> "Common/Utils"
+        }
+
+        // 3. УМНОЕ ОПРЕДЕЛЕНИЕ ПОДБЛОКА
+        val subBlock = when {
+            // Feature-based: features/search/ui -> search (ui)
+            path.contains("/features/") -> {
+                val parts = path.split("/features/")
+                val featurePath = parts[1].split("/")
+                val featureName = featurePath.firstOrNull() ?: "common"
+                val layer = if (path.contains("/ui/")) "ui" else if (path.contains("/data/")) "data" else "logic"
+                "$featureName ($layer)"
+            }
+            // Группировка по смыслу папок
+            path.contains("/ui/screens/") -> "screens"
+            path.contains("/ui/theme/") -> "theme"
+            path.contains("/ui/components/") -> "components"
+            path.contains("/core/ui/") -> "ui-core"
+            path.contains("/data/local/") -> "local-data"
+            path.contains("/data/remote/") -> "remote-data"
+            // По умолчанию - имя родительской папки
+            else -> file.virtualFile.parent?.name ?: "main"
+        }
+
+        return Pair(category, subBlock)
+    }
+
+    private fun parseFile(file: PsiFile, subBlock: String): FileNode {
+        val classes = mutableListOf<ClassNode>()
+        if (file is KtFile) {
+            file.getChildrenOfType<KtClassOrObject>().forEach { classes.add(parseKtClass(it)) }
+        } else if (file is PsiJavaFile) {
+            file.classes.forEach { classes.add(parseJavaClass(it)) }
+        }
+        return FileNode(file.name, file.virtualFile.path, subBlock, classes)
+    }
+
+    private fun parseKtClass(ktClass: KtClassOrObject): ClassNode {
+        val fqName = ktClass.fqName?.asString()
+        val methods = ktClass.declarations.filterIsInstance<KtFunction>().map { parseKtFunction(it, ktClass.name ?: "Unknown") }
+        return ClassNode(ktClass.name ?: "Anonymous", fqName, if (ktClass is KtClass && ktClass.isInterface()) "Interface" else "Class", methods)
+    }
+
+    private fun parseKtFunction(function: KtFunction, className: String): MethodNode {
+        val params = function.valueParameters.joinToString(",") { it.typeReference?.text ?: "any" }
+        val fqName = (function.fqName?.asString() ?: "${className}.${function.name}") + "($params)"
+        val calls = PsiTreeUtil.findChildrenOfType(function, KtCallExpression::class.java).map { call ->
+            val resolved = call.calleeExpression?.references?.firstOrNull()?.resolve()
+            
+            val targetId = when (resolved) {
+                is KtFunction -> {
+                    val p = resolved.valueParameters.joinToString(",") { it.typeReference?.text ?: "any" }
+                    (resolved.fqName?.asString() ?: resolved.name) + "($p)"
+                }
+                is PsiMethod -> {
+                    val p = resolved.parameterList.parameters.joinToString(",") { it.type.presentableText }
+                    (resolved.containingClass?.qualifiedName + "." + resolved.name) + "($p)"
+                }
+                else -> null
+            }
+            
+            val targetLoc = when (resolved) {
+                is KtFunction -> "${resolved.containingKtFile.name} > ${resolved.name}"
+                is PsiMethod -> "${resolved.containingFile.name} > ${resolved.containingClass?.name ?: "Unknown"} > ${resolved.name}"
+                else -> "External/Library"
+            }
+
+            CallNode(call.calleeExpression?.text ?: "unknown", targetId, targetLoc, if (isExpressionUsed(call)) "REQUEST" else "ACTION", call.text)
+        }
+        return MethodNode(fqName, function.name ?: "anonymous", "Function: ${function.name}\nClass: $className", calls)
+    }
+
+    private fun isExpressionUsed(expr: KtExpression): Boolean {
+        val parent = expr.parent
+        return when (parent) {
+            is KtProperty, is KtBinaryExpression, is KtReturnExpression, is KtValueArgument, 
+            is KtIfExpression, is KtWhenCondition, is KtArrayAccessExpression, 
+            is KtPostfixExpression, is KtPrefixExpression -> true
+            is KtDotQualifiedExpression -> if (parent.receiverExpression == expr) true else isExpressionUsed(parent)
+            is KtSafeQualifiedExpression -> if (parent.receiverExpression == expr) true else isExpressionUsed(parent)
+            else -> false
         }
     }
 
-    fun openDbFile() {
-        val f = File(dbPath)
-        if (f.exists()) {
-            val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(f)
-            vf?.let { ApplicationManager.getApplication().invokeLater { FileEditorManager.getInstance(project).openFile(it, true) } }
+    private fun parseJavaClass(psiClass: PsiClass): ClassNode {
+        val methods = psiClass.methods.map { method ->
+            val params = method.parameterList.parameters.joinToString(",") { it.type.presentableText }
+            val fqName = (psiClass.qualifiedName ?: "Unknown") + "." + method.name + "($params)"
+            val calls = PsiTreeUtil.findChildrenOfType(method, PsiMethodCallExpression::class.java).map { call ->
+                val resolved = call.resolveMethod()
+                val targetParams = resolved?.parameterList?.parameters?.joinToString(",") { it.type.presentableText } ?: ""
+                CallNode(call.methodExpression.referenceName ?: "unknown", resolved?.let { (it.containingClass?.qualifiedName ?: "Unknown") + "." + it.name + "($targetParams)" }, resolved?.let { "${it.containingFile.name} > ${it.containingClass?.name ?: "Unknown"} > ${it.name}" }, "UNKNOWN_JAVA", call.text)
+            }
+            MethodNode(fqName, method.name, "Method: ${method.name}\nClass: ${psiClass.name}", calls)
+        }
+        return ClassNode(psiClass.name ?: "Anonymous", psiClass.qualifiedName, if (psiClass.isInterface) "Interface" else "Class", methods)
+    }
+
+    fun buildMapOnTheFly(): CodeMapData {
+        val dbFile = File(dbPath)
+        if (!dbFile.exists()) return CodeMapData()
+        return try {
+            com.google.gson.Gson().fromJson(dbFile.readText(), CodeMapData::class.java)
+        } catch (e: Exception) { CodeMapData() }
+    }
+
+    fun exportToDesktop() {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val smartData = buildMapOnTheFly()
+            val desktopPath = System.getProperty("user.home") + File.separator + "Desktop"
+            val file = File(desktopPath, "codemap_export.json")
+            try {
+                file.writeText(gson.toJson(smartData))
+                ApplicationManager.getApplication().invokeLater {
+                    Messages.showInfoMessage("Иерархия исправлена! LabelResolver в Utils, StepManager в Infrastructure.", "Успех")
+                }
+            } catch (e: Exception) {
+                ApplicationManager.getApplication().invokeLater {
+                    Messages.showErrorDialog("Ошибка экспорта: ${e.message}", "Ошибка")
+                }
+            }
         }
     }
 
     fun openProjectFile(p: String) {
-        if (p == "virtual") return
         val f = File(p)
         if (f.exists()) {
             val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(f)
-            vf?.let { ApplicationManager.getApplication().invokeLater { FileEditorManager.getInstance(project).openFile(it, true) } }
+            vf?.let { ApplicationManager.getApplication().invokeLater {
+                com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).openFile(it, true)
+            } }
         }
     }
 }
