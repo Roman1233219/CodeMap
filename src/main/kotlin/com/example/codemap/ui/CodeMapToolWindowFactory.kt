@@ -10,7 +10,6 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
-import com.intellij.ui.jcef.JBCefJSQuery
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.handler.CefLoadHandlerAdapter
@@ -24,6 +23,7 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
     private lateinit var progressBar: JProgressBar
     private lateinit var scanBtn: JButton
     private lateinit var showBtn: JButton
+    private lateinit var exportBtn: JButton
     private var browser: JBCefBrowser? = null
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -42,6 +42,8 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
         val controls = JPanel(FlowLayout(FlowLayout.LEFT))
         scanBtn = JButton("Спарсить данные")
         showBtn = JButton("Показать визуализацию")
+        exportBtn = JButton("Экспорт")
+        
         progressBar = JProgressBar(0, 100).apply {
             isStringPainted = true
             preferredSize = Dimension(150, 20)
@@ -50,12 +52,16 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
         scanBtn.addActionListener {
             scanBtn.isEnabled = false
             showBtn.isEnabled = false
+            exportBtn.isEnabled = false
+            progressBar.value = 0
+            
             core.refreshDatabase(
                 onProgress = { p -> SwingUtilities.invokeLater { progressBar.value = p } },
                 onFinished = {
                     SwingUtilities.invokeLater {
                         scanBtn.isEnabled = true
                         showBtn.isEnabled = true
+                        exportBtn.isEnabled = true
                     }
                 }
             )
@@ -65,13 +71,11 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
             val jsonData = core.getJsonData()
             if (jsonData == "{}") return@addActionListener
             
-            // Используем Gson для безопасного экранирования всего JSON
             val safeJson = Gson().toJson(jsonData)
             
             val htmlStream = javaClass.getResourceAsStream("/webapp/index.html")
             val htmlText = htmlStream?.bufferedReader()?.use { it.readText() } ?: "<h1>Error</h1>"
             
-            // Добавляем обработчик загрузки, чтобы впрыснуть данные как только страница готова
             browser?.jbCefClient?.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(browser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
                     if (frame?.isMain == true) {
@@ -86,7 +90,15 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
             browser?.loadHTML(htmlText)
         }
 
-        controls.add(scanBtn); controls.add(progressBar); controls.add(showBtn)
+        exportBtn.addActionListener {
+            core.exportToDesktop()
+        }
+
+        controls.add(scanBtn)
+        controls.add(progressBar)
+        controls.add(showBtn)
+        controls.add(exportBtn)
+
         mainPanel.add(controls, BorderLayout.NORTH)
         mainPanel.add(browser!!.component, BorderLayout.CENTER)
 

@@ -13,24 +13,25 @@
         .block-rect { fill: #ffffff; stroke: #000000; stroke-width: 1.5px; }
         .block-text { font-size: 13px; text-anchor: middle; dominant-baseline: middle; fill: #333; font-weight: bold; pointer-events: none; }
 
-        /* Исходные цвета сегментов */
+        /* Цвета сегментов */
         .line-out-call { stroke: #008000; }
         .line-in-call { stroke: #ffd700; }
         .line-out-data { stroke: #000080; }
         .line-in-data { stroke: #00bfff; }
         .line-bus-core { stroke: #ff0000; stroke-width: 1.5px; }
 
-        .conn-segment { fill: none; opacity: 0.7; stroke-width: 1px; pointer-events: none; }
+        .conn-segment { fill: none; opacity: 0.7; stroke-width: 1.2px; pointer-events: none; transition: stroke 0.2s; }
 
-        /* ПОДСВЕТКА: ВСЯ СВЯЗЬ КРАСНЕЕТ ПРИ НАВЕДЕНИИ */
+        /* ПОДСВЕТКА: ВСЯ ТРАНЗАКЦИЯ КРАСНЕЕТ ПРИ НАВЕДЕНИИ */
         .conn-group:hover .conn-segment, .conn-group.active .conn-segment {
             stroke: #ff0000 !important;
             stroke-width: 2.5px !important;
             opacity: 1 !important;
         }
 
-        .merged-5 .conn-segment { stroke-width: 5px; opacity: 0.8; }
-        .merged-10 .conn-segment { stroke-width: 10px; opacity: 1; }
+        /* Многоуровневое слияние */
+        .merged-5 .conn-segment { stroke-width: 5px !important; opacity: 0.8; }
+        .merged-10 .conn-segment { stroke-width: 10px !important; opacity: 1; }
 
         .hit-area { fill: none; stroke: transparent; stroke-width: 12px; pointer-events: stroke; cursor: pointer; }
 
@@ -40,7 +41,7 @@
         .tooltip {
             position: absolute; background: rgba(0,0,0,0.9); color: #fff; padding: 8px 12px;
             border-radius: 4px; font-size: 12px; pointer-events: none; visibility: hidden; z-index: 1000;
-            white-space: nowrap; border: 1px solid #ff0000;
+            white-space: nowrap; border: 1px solid #ff0000; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
         }
     </style>
 </head>
@@ -48,6 +49,13 @@
     <div id="canvas-container">
         <div id="tooltip" class="tooltip"></div>
         <svg id="main-svg">
+            <defs>
+                <marker id="m-out-call" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orientation="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#008000"/></marker>
+                <marker id="m-in-call" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orientation="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ffd700"/></marker>
+                <marker id="m-out-data" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orientation="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#000080"/></marker>
+                <marker id="m-in-data" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orientation="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#00bfff"/></marker>
+                <marker id="m-hover" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orientation="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff0000"/></marker>
+            </defs>
             <g id="viewport">
                 <!-- Фоны шин -->
                 <line class="bus-call-bg" x1="-5000" y1="80" x2="5000" y2="80" />
@@ -56,7 +64,6 @@
                 <g id="connections-layer"></g>
 
                 <g id="blocks-layer">
-                    <!-- Статичные блоки ( viewbox 1200x600 ) -->
                     <g transform="translate(20, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">1. Presentation</text></g>
                     <g transform="translate(215, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">2. Domain</text></g>
                     <g transform="translate(410, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">3. Data</text></g>
@@ -93,10 +100,13 @@
         container.onwheel = (e) => {
             e.preventDefault();
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
+
+            // Преобразование координат экрана в SVG
             const pt = svg.createSVGPoint();
             pt.x = e.clientX; pt.y = e.clientY;
             const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
 
+            // Зум относительно курсора
             tx = svgP.x - (svgP.x - tx) * delta;
             ty = svgP.y - (svgP.y - ty) * delta;
             scale *= delta;
@@ -107,15 +117,14 @@
         container.onmousedown = (e) => { if(e.button === 0) { isDragging = true; lastX = e.clientX; lastY = e.clientY; } };
         window.onmousemove = (e) => {
             if (!isDragging) return;
-            const dx = e.clientX - lastX; const dy = e.clientY - lastY;
-            tx += dx; ty += dy;
+            tx += e.clientX - lastX; ty += e.clientY - lastY;
             lastX = e.clientX; lastY = e.clientY;
             updateTransform();
         };
         window.onmouseup = () => isDragging = false;
 
         function updateTransform() {
-            viewport.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+            viewport.setAttribute('transform', 'translate(' + tx + ',' + ty + ') scale(' + scale + ')');
         }
 
         window.initData = function(data) {
@@ -139,7 +148,10 @@
                                         const targetFile = call.targetLocation.split(" > ")[0];
                                         const targetCat = findCatByFile(targetFile);
                                         if (targetCat && targetCat !== srcCat) {
-                                            connections.push({ src: srcCat, tgt: targetCat, type: call.type, label: file.fileName + " : " + m.name + " — " + call.targetLocation });
+                                            connections.push({
+                                                src: srcCat, tgt: targetCat, type: call.type,
+                                                label: file.fileName + " : " + m.name + " — " + call.targetLocation
+                                            });
                                         }
                                     }
                                 });
@@ -163,54 +175,38 @@
                 let cls = (count > 50) ? "merged-10" : (count > 10 ? "merged-5" : "");
 
                 if (cls) {
-                    renderPath(list[0].src, list[0].tgt, busY, isData, cls, list, true);
+                    renderTransaction(list[0].src, list[0].tgt, busY, isData, cls, list, true);
                 } else {
                     list.forEach((item, i) => {
-                        renderPath(list[0].src, list[0].tgt, busY, isData, "", [item], false, i, count);
+                        renderTransaction(list[0].src, list[0].tgt, busY, isData, "", [item], false, i, count);
                     });
                 }
             });
         }
 
-        function renderPath(srcId, tgtId, busY, isData, cls, items, merged, index = 0, total = 1) {
-            const src = blockConfig[srcId]; const tgt = blockConfig[tgtId];
-            if (!src || !tgt) return;
-
-            const centerX_src = src.x + src.w / 2;
-            const centerX_tgt = tgt.x + tgt.w / 2;
-
-            // Расчет X: Исходящие (влево от центра), Входящие (вправо от центра)
-            const step = total > 1 ? (src.w / 2 - 10) / total : 0;
-            const xOut = Math.min(src.x + (index * step), centerX_src - 2);
-            const xIn = Math.max(tgt.x + tgt.w - (index * step), centerX_tgt + 2);
-
-            const startY = isData ? (src.y + src.h) : src.y;
-            const endY = isData ? (tgt.y + tgt.h) : tgt.y;
-
+        function renderTransaction(srcId, tgtId, busY, isData, cls, items, merged, index = 0, total = 1) {
             const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
             g.setAttribute("class", "conn-group " + cls);
 
-            const outPath = createSeg(`M ${xOut} ${startY} L ${xOut} ${busY}`, isData ? "line-out-data" : "line-out-call");
-            const busPath = createSeg(`M ${xOut} ${busY} L ${xIn} ${busY}`, "line-bus-core");
-            const inPath = createSeg(`M ${xIn} ${busY} L ${xIn} ${endY}`, isData ? "line-in-data" : "line-in-call");
-
-            const hitArea = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            hitArea.setAttribute("d", `M ${xOut} ${startY} L ${xOut} ${busY} L ${xIn} ${busY} L ${xIn} ${endY}`);
-            hitArea.setAttribute("class", "hit-area");
-
-            g.append(outPath, busPath, inPath, hitArea);
-            const txt = merged ? (items.length + " связей") : items[0].label;
+            if (isData) {
+                // Тяжелый (REQUEST): Пара Запрос + Ответ
+                g.appendChild(createFullRoute(srcId, tgtId, busY, true, index, total, items[0].label));
+                g.appendChild(createFullRoute(tgtId, srcId, busY, true, index + 0.5, total, "ОТВЕТ: " + items[0].label));
+            } else {
+                // Легкий (ACTION): Одна линия
+                g.appendChild(createFullRoute(srcId, tgtId, busY, false, index, total, items[0].label));
+            }
 
             g.onmouseenter = (e) => {
                 if (merged) {
-                    g.style.display = "none";
+                    g.style.opacity = "0.1";
                     items.forEach((it, i) => {
-                        const sub = renderPath(srcId, tgtId, busY, isData, "", [it], false, i, items.length);
+                        const sub = renderTransaction(srcId, tgtId, busY, isData, "", [it], false, i, items.length);
                         sub.classList.add('active-expansion');
                         connLayer.appendChild(sub);
                     });
                 } else {
-                    showTooltip(e, txt);
+                    showTooltip(e, items[0].label);
                 }
             };
 
@@ -218,16 +214,46 @@
                 tooltip.style.visibility = "hidden";
                 if (merged) {
                     document.querySelectorAll('.active-expansion').forEach(el => el.remove());
-                    g.style.display = "inline";
+                    g.style.opacity = "1";
                 }
             };
 
             connLayer.appendChild(g);
-            if (!merged) {
-                createDot(xOut, startY, txt); createDot(xIn, endY, txt);
-                createDot(xOut, busY, txt); createDot(xIn, busY, txt);
-            }
             return g;
+        }
+
+        function createFullRoute(sId, tId, busY, isData, idx, total, label) {
+            const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            const src = blockConfig[sId]; const tgt = blockConfig[tId];
+            if(!src || !tgt) return group;
+
+            const centerX_s = src.x + src.w / 2;
+            const centerX_t = tgt.x + tgt.w / 2;
+
+            // Расчет X: Исходящие от ЛЕВОГО края, Входящие от ПРАВОГО края. Зазор 4px по центру.
+            const maxOff = src.w / 2 - 10;
+            const step = total > 1 ? maxOff / (total - 1) : 0;
+
+            const xOut = Math.min(src.x + (idx * step), centerX_s - 2);
+            const xIn = Math.max(tgt.x + tgt.w - (idx * step), centerX_t + 2);
+
+            const yStart = isData ? (src.y + src.h) : src.y;
+            const yEnd = isData ? (tgt.y + tgt.h) : tgt.y;
+
+            const p1 = createSeg("M " + xOut + " " + yStart + " L " + xOut + " " + busY, isData ? "line-out-data" : "line-out-call");
+            const p2 = createSeg("M " + xOut + " " + busY + " L " + xIn + " " + busY, "line-bus-core");
+            const p3 = createSeg("M " + xIn + " " + busY + " L " + xIn + " " + yEnd, isData ? "line-in-data" : "line-in-call");
+
+            p1.setAttribute("marker-start", isData ? "url(#m-out-data)" : "url(#m-out-call)");
+            p3.setAttribute("marker-end", isData ? "url(#m-in-data)" : "url(#m-in-call)");
+
+            const hit = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            hit.setAttribute("d", "M " + xOut + " " + yStart + " L " + xOut + " " + busY + " L " + xIn + " " + busY + " L " + xIn + " " + yEnd);
+            hit.setAttribute("class", "hit-area");
+
+            group.append(p1, p2, p3, hit);
+            createDot(xOut, yStart, label); createDot(xIn, yEnd, label);
+            return group;
         }
 
         function createSeg(d, cls) {
@@ -256,6 +282,8 @@
             tooltip.innerText = txt; tooltip.style.visibility = "visible";
             tooltip.style.left = (e.clientX + 15) + "px"; tooltip.style.top = (e.clientY + 15) + "px";
         }
+
+        document.addEventListener('DOMContentLoaded', () => { if (window.INITIAL_DATA) draw(); });
     </script>
 </body>
 </html>
