@@ -20,7 +20,8 @@ data class CallNode(
     val targetId: String?,
     val targetLocation: String?,
     val type: String,
-    val text: String
+    val text: String,
+    val hasDataCallback: Boolean = false
 )
 
 data class MethodNode(
@@ -207,22 +208,28 @@ class CodeMapCore(private val project: Project) {
                 else -> "External/Library"
             }
 
+            val typeResult = resolveKtCallType(call)
             CallNode(
                 targetName = call.calleeExpression?.text ?: "unknown",
                 targetId = targetId,
                 targetLocation = targetLoc,
-                type = resolveKtCallType(call),
-                text = call.text
+                type = typeResult.first,
+                text = call.text,
+                hasDataCallback = typeResult.second
             )
         }
         return MethodNode(fqName, function.name ?: "anonymous", "Function: ${function.name}\nClass: $className", calls)
     }
 
-    private fun resolveKtCallType(call: KtCallExpression): String {
+    private fun resolveKtCallType(call: KtCallExpression): Pair<String, Boolean> {
         val name = call.calleeExpression?.text?.lowercase() ?: ""
 
-        val hasCallback = call.lambdaArguments.isNotEmpty() ||
-                call.valueArguments.any { it.getArgumentExpression() is KtLambdaExpression }
+        val lambdas = (call.lambdaArguments.map { it.getArgumentExpression() } +
+                call.valueArguments.map { it.getArgumentExpression() })
+            .filterIsInstance<KtLambdaExpression>()
+
+        val hasCallback = lambdas.isNotEmpty()
+        val hasDataCallback = lambdas.any { it.valueParameters.isNotEmpty() }
 
         // Методы, которые возвращают данные (REQUEST)
         val dataRequestPrefixes = listOf("get", "fetch", "load", "observe", "find", "query", "request")
@@ -232,17 +239,15 @@ class CodeMapCore(private val project: Project) {
         val actionPrefixes = listOf("start", "stop", "run", "execute", "launch", "schedule", "set", "enable", "clear")
         val isAction = actionPrefixes.any { name.startsWith(it) }
 
-        // Если есть колбэк → всегда REQUEST (данные вернутся)
-        if (hasCallback) return "REQUEST"
+        val type = when {
+            hasCallback -> "REQUEST"
+            isDataRequest -> "REQUEST"
+            isAction -> "ACTION"
+            isExpressionUsed(call) -> "REQUEST"
+            else -> "ACTION"
+        }
 
-        // Если это явный запрос данных → REQUEST
-        if (isDataRequest) return "REQUEST"
-
-        // Если это явное действие → ACTION
-        if (isAction) return "ACTION"
-
-        // По умолчанию проверяем использование результата
-        return if (isExpressionUsed(call)) "REQUEST" else "ACTION"
+        return Pair(type, hasDataCallback)
     }
 
     private fun isExpressionUsed(expr: KtExpression): Boolean {
@@ -275,7 +280,8 @@ class CodeMapCore(private val project: Project) {
                     targetId = resolved?.let { (it.containingClass?.qualifiedName ?: "Unknown") + "." + it.name + "($targetParams)" },
                     targetLocation = resolved?.let { "${it.containingFile.name} > ${it.containingClass?.name ?: "Unknown"} > ${it.name}" },
                     type = if (isRequest) "REQUEST" else "ACTION", 
-                    text = call.text
+                    text = call.text,
+                    hasDataCallback = false
                 )
             }
             MethodNode(fqName, method.name, "Method: ${method.name}\nClass: ${psiClass.name}", calls)
