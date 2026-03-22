@@ -1,289 +1,349 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture Visualizer</title>
     <style>
-        body { background: #ffffff; margin: 0; overflow: hidden; font-family: sans-serif; }
-        #canvas-container { width: 100vw; height: 100vh; position: relative; cursor: grab; background: #fafafa; }
-        #canvas-container:active { cursor: grabbing; }
-        svg { width: 100%; height: 100%; display: block; }
+        body {
+            background: #ffffff;
+            margin: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
 
-        .bus-call-bg { stroke: green; stroke-width: 4px; opacity: 0.1; }
-        .bus-data-bg { stroke: navy; stroke-width: 4px; opacity: 0.1; }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            cursor: grab;
+            background: #fafafa;
+        }
+        #canvas-container:active {
+            cursor: grabbing;
+        }
 
-        .block-rect { fill: #ffffff; stroke: #000000; stroke-width: 1.5px; }
-        .block-text { font-size: 13px; text-anchor: middle; dominant-baseline: middle; fill: #333; font-weight: bold; pointer-events: none; }
+        svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
 
-        /* Цвета сегментов */
-        .line-out-call { stroke: #008000; }
-        .line-in-call { stroke: #ffd700; }
-        .line-out-data { stroke: #000080; }
-        .line-in-data { stroke: #00bfff; }
-        .line-bus-core { stroke: #ff0000; stroke-width: 1.5px; }
+        /* Фоновые линии шин */
+        .bus-call-bg {
+            stroke: #006400;
+            stroke-width: 8px;
+            opacity: 0.3;
+        }
+        .bus-data-bg {
+            stroke: #00008B;
+            stroke-width: 8px;
+            opacity: 0.3;
+        }
 
-        .conn-segment { fill: none; opacity: 0.7; stroke-width: 1.2px; pointer-events: none; transition: stroke 0.2s; }
+        /* Блоки архитектуры */
+        .block-rect {
+            fill: #ffffff;
+            stroke: #000000;
+            stroke-width: 1.5px;
+        }
+        .block-text {
+            font-size: 13px;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            fill: #333;
+            font-weight: bold;
+            pointer-events: none;
+        }
 
-        /* ПОДСВЕТКА: ВСЯ ТРАНЗАКЦИЯ КРАСНЕЕТ ПРИ НАВЕДЕНИИ */
-        .conn-group:hover .conn-segment, .conn-group.active .conn-segment {
+        /* Базовые классы для линий */
+        .line-out-call, .line-in-call, .line-out-data, .line-in-data, .line-bus-core {
+            transition: stroke 0.1s ease, stroke-width 0.1s ease;
+        }
+
+        /* ===== ДВУНАПРАВЛЕННЫЕ REQUEST ===== */
+        .conn-group.bidirectional .line-bidirectional {
+            stroke-width: 2px !important;
+            fill: none;
+        }
+
+        .conn-group.bidirectional .arrow-src,
+        .conn-group.bidirectional .arrow-tgt {
+            stroke: none;
+            fill: none;
+        }
+
+        /* ===== ВЫДЕЛЕНИЕ ПРИ ДВОЙНОМ КЛИКЕ (КРАСНАЯ ПЕТЛЯ) ===== */
+        .conn-group.bidirectional.active .line-bidirectional {
+            stroke: #ff0000 !important;
+            filter: drop-shadow(0 0 4px rgba(255,0,0,0.5));
+        }
+
+        .conn-group.bidirectional.active .arrow-src,
+        .conn-group.bidirectional.active .arrow-tgt {
+            marker-end: url(#arrowInDataRed) !important;
+        }
+
+        /* ===== ОДНОНАПРАВЛЕННЫЕ REQUEST ===== */
+        .conn-group[data-bidirectional="false"][data-is-data="true"] .conn-segment,
+        .conn-group[data-bidirectional="false"][data-is-data="true"] .line-bus-core {
+            stroke: #00bfff !important;
+            stroke-width: 1px !important;
+            opacity: 0.8;
+        }
+
+        /* ===== ACTION (верхняя шина) ===== */
+        .conn-group[data-is-data="false"] .line-out-call {
+            stroke: #008000 !important;
+        }
+        .conn-group[data-is-data="false"] .line-in-call {
+            stroke: #ffd700 !important;
+        }
+        .conn-group[data-is-data="false"] .line-bus-core {
+            stroke: #006400 !important;
+        }
+
+        /* Базовые стили для сегментов */
+        .conn-segment {
+            fill: none;
+            pointer-events: none;
+            transition: stroke 0.1s ease, stroke-width 0.1s ease;
+        }
+
+        /* Область для клика */
+        .hit-area {
+            fill: none;
+            stroke: transparent;
+            stroke-width: 12px;
+            pointer-events: stroke;
+            cursor: pointer;
+        }
+
+        /* Точки */
+        .dot {
+            r: 3;
+            pointer-events: all;
+            cursor: pointer;
+            transition: fill 0.2s ease;
+        }
+        .dot:hover {
+            fill: #ff0000 !important;
+        }
+
+        /* ===== ПОДСВЕТКА ПРИ НАВЕДЕНИИ (через класс hover-highlight) ===== */
+        .conn-group.hover-highlight .conn-segment,
+        .conn-group.hover-highlight .line-bus-core {
             stroke: #ff0000 !important;
             stroke-width: 2.5px !important;
             opacity: 1 !important;
         }
 
-        /* Многоуровневое слияние */
-        .merged-5 .conn-segment { stroke-width: 5px !important; opacity: 0.8; }
-        .merged-10 .conn-segment { stroke-width: 10px !important; opacity: 1; }
+        /* Для ACTION линий */
+        .conn-group[data-is-data="false"].hover-highlight .line-out-call,
+        .conn-group[data-is-data="false"].hover-highlight .line-in-call,
+        .conn-group[data-is-data="false"].hover-highlight .line-bus-core {
+            stroke: #ff0000 !important;
+            stroke-width: 2.5px !important;
+        }
 
-        .hit-area { fill: none; stroke: transparent; stroke-width: 12px; pointer-events: stroke; cursor: pointer; }
+        /* Для однонаправленных REQUEST */
+        .conn-group[data-bidirectional="false"][data-is-data="true"].hover-highlight .conn-segment,
+        .conn-group[data-bidirectional="false"][data-is-data="true"].hover-highlight .line-bus-core {
+            stroke: #ff0000 !important;
+            stroke-width: 2.5px !important;
+        }
 
-        .dot { fill: #000; r: 2.5; pointer-events: all; }
-        .dot:hover { r: 5; fill: #ff0000; cursor: pointer; }
+        /* Для двунаправленных REQUEST */
+        .conn-group.bidirectional.hover-highlight .line-bidirectional {
+            stroke: #ff0000 !important;
+            stroke-width: 2.5px !important;
+        }
 
+        /* Стрелки для двунаправленных при подсветке */
+        .conn-group.bidirectional.hover-highlight .arrow-src,
+        .conn-group.bidirectional.hover-highlight .arrow-tgt {
+            marker-end: url(#arrowInDataRed) !important;
+        }
+
+        /* ===== ПОДСВЕТКА ПРИ НАВЕДЕНИИ (старый способ через :hover) ===== */
+        body:not(.has-active) .conn-group:hover .conn-segment,
+        body:not(.has-active) .conn-group:hover .line-bus-core {
+            stroke: #ff0000 !important;
+            stroke-width: 2.5px !important;
+            opacity: 1 !important;
+        }
+
+        /* ===== АКТИВНАЯ (ВЫДЕЛЕННАЯ) ЛИНИЯ ===== */
+        .conn-group.active .conn-segment,
+        .conn-group.active .line-bus-core {
+            stroke: #ff0000 !important;
+            stroke-width: 3px !important;
+            opacity: 1 !important;
+            filter: drop-shadow(0 0 4px rgba(255,0,0,0.5));
+        }
+
+        /* При активной линии отключаем подсветку остальных */
+        body.has-active .conn-group:not(.active):hover .conn-segment,
+        body.has-active .conn-group:not(.active):hover .line-bus-core {
+            stroke: inherit !important;
+            stroke-width: inherit !important;
+            opacity: 0.7 !important;
+        }
+
+        body.has-active .conn-group.bidirectional:not(.active):hover .line-bidirectional {
+            stroke: inherit !important;
+            stroke-width: inherit !important;
+        }
+
+        /* Объединенные линии (много связей) */
+        .merged-5 .conn-segment {
+            stroke-width: 5px;
+            opacity: 0.8;
+        }
+        .merged-10 .conn-segment {
+            stroke-width: 10px;
+            opacity: 1;
+        }
+
+        /* Всплывающая подсказка */
         .tooltip {
-            position: absolute; background: rgba(0,0,0,0.9); color: #fff; padding: 8px 12px;
-            border-radius: 4px; font-size: 12px; pointer-events: none; visibility: hidden; z-index: 1000;
-            white-space: nowrap; border: 1px solid #ff0000; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            position: absolute;
+            background: rgba(0,0,0,0.9);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            visibility: hidden;
+            z-index: 1000;
+            white-space: nowrap;
+            border: 1px solid #ff0000;
+            font-family: monospace;
+            max-width: 400px;
+            white-space: normal;
+            word-break: break-word;
+        }
+
+        /* Оверлей загрузки */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            color: white;
+            font-size: 18px;
+            flex-direction: column;
+            backdrop-filter: blur(4px);
+        }
+
+        /* Сообщение об ошибке */
+        .error-message {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #ff4444;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            z-index: 2000;
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Кнопки управления */
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .btn {
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            backdrop-filter: blur(4px);
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            background: rgba(0,0,0,0.9);
+            transform: scale(1.05);
+        }
+
+        /* Панель статистики */
+        .stats-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+            font-family: monospace;
+            text-align: right;
         }
     </style>
 </head>
 <body>
-    <div id="canvas-container">
-        <div id="tooltip" class="tooltip"></div>
-        <svg id="main-svg">
-            <defs>
-                <marker id="m-out-call" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orientation="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#008000"/></marker>
-                <marker id="m-in-call" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orientation="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ffd700"/></marker>
-                <marker id="m-out-data" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orientation="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#000080"/></marker>
-                <marker id="m-in-data" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orientation="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#00bfff"/></marker>
-                <marker id="m-hover" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orientation="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff0000"/></marker>
-            </defs>
-            <g id="viewport">
-                <!-- Фоны шин -->
-                <line class="bus-call-bg" x1="-5000" y1="80" x2="5000" y2="80" />
-                <line class="bus-data-bg" x1="-5000" y1="520" x2="5000" y2="520" />
+<div id="canvas-container">
+    <div id="tooltip" class="tooltip"></div>
+    <svg id="main-svg">
+        <g id="viewport">
+            <line class="bus-call-bg" x1="-5000" y1="80" x2="5000" y2="80" />
+            <line class="bus-data-bg" x1="-5000" y1="520" x2="5000" y2="520" />
 
-                <g id="connections-layer"></g>
+            <g id="connections-layer"></g>
 
-                <g id="blocks-layer">
-                    <g transform="translate(20, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">1. Presentation</text></g>
-                    <g transform="translate(215, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">2. Domain</text></g>
-                    <g transform="translate(410, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">3. Data</text></g>
-                    <g transform="translate(605, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">4. Infrastructure</text></g>
-                    <g transform="translate(800, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">5. DI</text></g>
-                    <g transform="translate(995, 275)"><rect class="block-rect" width="185" height="50" /><text class="block-text" x="92" y="25">6. Common / Utils</text></g>
-                </g>
-                <g id="dots-layer"></g>
+            <g id="blocks-layer">
+                <g transform="translate(20, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">1. Presentation</text></g>
+                <g transform="translate(215, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">2. Domain</text></g>
+                <g transform="translate(410, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">3. Data</text></g>
+                <g transform="translate(605, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">4. Infrastructure</text></g>
+                <g transform="translate(800, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">5. DI</text></g>
+                <g transform="translate(995, 275)"><rect class="block-rect" width="185" height="50" /><text class="block-text" x="92" y="25">6. Common / Utils</text></g>
             </g>
-        </svg>
-    </div>
 
-    <script>
-        window.INITIAL_DATA = null;
-        const blockConfig = {
-            "Presentation": { x: 20, y: 275, w: 180, h: 50 },
-            "Domain": { x: 215, y: 275, w: 180, h: 50 },
-            "Data": { x: 410, y: 275, w: 180, h: 50 },
-            "Infrastructure": { x: 605, y: 275, w: 180, h: 50 },
-            "DI": { x: 800, y: 275, w: 180, h: 50 },
-            "Common / Utils": { x: 995, y: 275, w: 185, h: 50 }
-        };
+            <g id="dots-layer"></g>
+        </g>
+    </svg>
+</div>
 
-        const viewport = document.getElementById('viewport');
-        const connLayer = document.getElementById('connections-layer');
-        const dotsLayer = document.getElementById('dots-layer');
-        const tooltip = document.getElementById('tooltip');
-        const svg = document.getElementById('main-svg');
+<div class="controls">
+    <button class="btn" onclick="window.reloadVisualization()">Reload</button>
+    <button class="btn" onclick="window.loadFromFileDialog()">Load File</button>
+</div>
 
-        // --- ZOOM & PAN LOGIC ---
-        let scale = 1, tx = 0, ty = 0;
-        const container = document.getElementById('canvas-container');
+<div id="stats-panel" class="stats-panel"></div>
 
-        container.onwheel = (e) => {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? 0.9 : 1.1;
-
-            // Преобразование координат экрана в SVG
-            const pt = svg.createSVGPoint();
-            pt.x = e.clientX; pt.y = e.clientY;
-            const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
-
-            // Зум относительно курсора
-            tx = svgP.x - (svgP.x - tx) * delta;
-            ty = svgP.y - (svgP.y - ty) * delta;
-            scale *= delta;
-            updateTransform();
-        };
-
-        let isDragging = false, lastX, lastY;
-        container.onmousedown = (e) => { if(e.button === 0) { isDragging = true; lastX = e.clientX; lastY = e.clientY; } };
-        window.onmousemove = (e) => {
-            if (!isDragging) return;
-            tx += e.clientX - lastX; ty += e.clientY - lastY;
-            lastX = e.clientX; lastY = e.clientY;
-            updateTransform();
-        };
-        window.onmouseup = () => isDragging = false;
-
-        function updateTransform() {
-            viewport.setAttribute('transform', 'translate(' + tx + ',' + ty + ') scale(' + scale + ')');
-        }
-
-        window.initData = function(data) {
-            window.INITIAL_DATA = data;
-            draw();
-        };
-
-        function draw() {
-            if (!INITIAL_DATA || !INITIAL_DATA.blocks) return;
-            connLayer.innerHTML = ""; dotsLayer.innerHTML = "";
-            const busCallY = 80, busDataY = 520;
-
-            const connections = [];
-            Object.entries(INITIAL_DATA.blocks).forEach(([srcCat, sub]) => {
-                Object.values(sub).forEach(files => {
-                    files.forEach(file => {
-                        file.classes.forEach(cls => {
-                            cls.methods.forEach(m => {
-                                m.calls.forEach(call => {
-                                    if (call.targetId && call.targetLocation) {
-                                        const targetFile = call.targetLocation.split(" > ")[0];
-                                        const targetCat = findCatByFile(targetFile);
-                                        if (targetCat && targetCat !== srcCat) {
-                                            connections.push({
-                                                src: srcCat, tgt: targetCat, type: call.type,
-                                                label: file.fileName + " : " + m.name + " — " + call.targetLocation
-                                            });
-                                        }
-                                    }
-                                });
-                            });
-                        });
-                    });
-                });
-            });
-
-            const groups = {};
-            connections.forEach(c => {
-                const key = c.src + "_" + c.tgt + "_" + c.type;
-                if (!groups[key]) groups[key] = [];
-                groups[key].push(c);
-            });
-
-            Object.entries(groups).forEach(([key, list]) => {
-                const count = list.length;
-                const isData = list[0].type === "REQUEST";
-                const busY = isData ? busDataY : busCallY;
-                let cls = (count > 50) ? "merged-10" : (count > 10 ? "merged-5" : "");
-
-                if (cls) {
-                    renderTransaction(list[0].src, list[0].tgt, busY, isData, cls, list, true);
-                } else {
-                    list.forEach((item, i) => {
-                        renderTransaction(list[0].src, list[0].tgt, busY, isData, "", [item], false, i, count);
-                    });
-                }
-            });
-        }
-
-        function renderTransaction(srcId, tgtId, busY, isData, cls, items, merged, index = 0, total = 1) {
-            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-            g.setAttribute("class", "conn-group " + cls);
-
-            if (isData) {
-                // Тяжелый (REQUEST): Пара Запрос + Ответ
-                g.appendChild(createFullRoute(srcId, tgtId, busY, true, index, total, items[0].label));
-                g.appendChild(createFullRoute(tgtId, srcId, busY, true, index + 0.5, total, "ОТВЕТ: " + items[0].label));
-            } else {
-                // Легкий (ACTION): Одна линия
-                g.appendChild(createFullRoute(srcId, tgtId, busY, false, index, total, items[0].label));
-            }
-
-            g.onmouseenter = (e) => {
-                if (merged) {
-                    g.style.opacity = "0.1";
-                    items.forEach((it, i) => {
-                        const sub = renderTransaction(srcId, tgtId, busY, isData, "", [it], false, i, items.length);
-                        sub.classList.add('active-expansion');
-                        connLayer.appendChild(sub);
-                    });
-                } else {
-                    showTooltip(e, items[0].label);
-                }
-            };
-
-            g.onmouseleave = () => {
-                tooltip.style.visibility = "hidden";
-                if (merged) {
-                    document.querySelectorAll('.active-expansion').forEach(el => el.remove());
-                    g.style.opacity = "1";
-                }
-            };
-
-            connLayer.appendChild(g);
-            return g;
-        }
-
-        function createFullRoute(sId, tId, busY, isData, idx, total, label) {
-            const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-            const src = blockConfig[sId]; const tgt = blockConfig[tId];
-            if(!src || !tgt) return group;
-
-            const centerX_s = src.x + src.w / 2;
-            const centerX_t = tgt.x + tgt.w / 2;
-
-            // Расчет X: Исходящие от ЛЕВОГО края, Входящие от ПРАВОГО края. Зазор 4px по центру.
-            const maxOff = src.w / 2 - 10;
-            const step = total > 1 ? maxOff / (total - 1) : 0;
-
-            const xOut = Math.min(src.x + (idx * step), centerX_s - 2);
-            const xIn = Math.max(tgt.x + tgt.w - (idx * step), centerX_t + 2);
-
-            const yStart = isData ? (src.y + src.h) : src.y;
-            const yEnd = isData ? (tgt.y + tgt.h) : tgt.y;
-
-            const p1 = createSeg("M " + xOut + " " + yStart + " L " + xOut + " " + busY, isData ? "line-out-data" : "line-out-call");
-            const p2 = createSeg("M " + xOut + " " + busY + " L " + xIn + " " + busY, "line-bus-core");
-            const p3 = createSeg("M " + xIn + " " + busY + " L " + xIn + " " + yEnd, isData ? "line-in-data" : "line-in-call");
-
-            p1.setAttribute("marker-start", isData ? "url(#m-out-data)" : "url(#m-out-call)");
-            p3.setAttribute("marker-end", isData ? "url(#m-in-data)" : "url(#m-in-call)");
-
-            const hit = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            hit.setAttribute("d", "M " + xOut + " " + yStart + " L " + xOut + " " + busY + " L " + xIn + " " + busY + " L " + xIn + " " + yEnd);
-            hit.setAttribute("class", "hit-area");
-
-            group.append(p1, p2, p3, hit);
-            createDot(xOut, yStart, label); createDot(xIn, yEnd, label);
-            return group;
-        }
-
-        function createSeg(d, cls) {
-            const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            p.setAttribute("d", d); p.setAttribute("class", "conn-segment " + cls);
-            return p;
-        }
-
-        function createDot(x, y, txt) {
-            const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-            dot.setAttribute("cx", x); dot.setAttribute("cy", y);
-            dot.setAttribute("class", "dot");
-            dot.onmouseenter = (e) => showTooltip(e, txt);
-            dotsLayer.appendChild(dot);
-        }
-
-        function findCatByFile(name) {
-            if (!window.INITIAL_DATA) return null;
-            for (const [cat, sub] of Object.entries(window.INITIAL_DATA.blocks)) {
-                for (const files of Object.values(sub)) { if (files.some(f => f.fileName === name)) return cat; }
-            }
-            return null;
-        }
-
-        function showTooltip(e, txt) {
-            tooltip.innerText = txt; tooltip.style.visibility = "visible";
-            tooltip.style.left = (e.clientX + 15) + "px"; tooltip.style.top = (e.clientY + 15) + "px";
-        }
-
-        document.addEventListener('DOMContentLoaded', () => { if (window.INITIAL_DATA) draw(); });
-    </script>
+<script src="visualization.js"></script>
+<script src="loader.js"></script>
 </body>
 </html>
