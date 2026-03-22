@@ -19,7 +19,10 @@ async function loadJSONFromPath(path) {
     }
 }
 
+// Попытка загрузить файл из корня (если он там есть)
 async function loadCodemapFromRoot() {
+    // В JCEF относительный путь может не сработать без настройки,
+    // поэтому мы полагаемся на initVisualizationWithData из плагина.
     return await loadJSONFromPath('./codemap_export.json');
 }
 
@@ -47,28 +50,26 @@ async function loadJSONFromFile(file) {
     });
 }
 
-async function loadAndInitialize() {
-    if (window.showLoading) window.showLoading();
-
-    const jsonData = await loadCodemapFromRoot();
-
+// Основная функция инициализации (теперь вызывается плагином напрямую)
+function initVisualizationWithData(jsonData) {
+    console.log('initVisualizationWithData called with:', jsonData);
     if (!jsonData) {
         if (window.hideLoading) window.hideLoading();
-        if (window.showError) window.showError('Could not load codemap_export.json');
+        if (window.showError) window.showError('Data is empty');
         return;
     }
 
-    if (window.initVisualizationWithData) {
-        window.initVisualizationWithData(jsonData);
+    if (window.initVisualizationWithDataFromScript) {
+        window.initVisualizationWithDataFromScript(jsonData);
     } else {
-        console.error('Visualizer not found');
-        if (window.hideLoading) window.hideLoading();
+        // Если визуализатор еще не загружен или функция переименована
+        console.error('Visualizer function not found');
     }
 }
 
 function reloadVisualization() {
-    console.log('Reloading visualization...');
-    loadAndInitialize();
+    // В данной архитектуре перезагрузка инициируется кнопкой в плагине
+    console.log('Please use "Show Visualization" button in the plugin to reload.');
 }
 
 function loadFromFileDialog() {
@@ -99,14 +100,9 @@ function loadFromFileDialog() {
     input.click();
 }
 
-window.loadAndInitialize = loadAndInitialize;
+// Экспортируем функции в глобальную область
+window.initVisualizationWithData = initVisualizationWithData;
 window.reloadVisualization = reloadVisualization;
 window.loadFromFileDialog = loadFromFileDialog;
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        loadAndInitialize();
-    });
-} else {
-    loadAndInitialize();
-}
+console.log('Loader script ready');

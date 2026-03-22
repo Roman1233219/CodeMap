@@ -5,310 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Architecture Visualizer</title>
     <style>
-        body {
-            background: #ffffff;
-            margin: 0;
-            overflow: hidden;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        }
-
-        #canvas-container {
-            width: 100vw;
-            height: 100vh;
-            position: relative;
-            cursor: grab;
-            background: #fafafa;
-        }
-        #canvas-container:active {
-            cursor: grabbing;
-        }
-
-        svg {
-            width: 100%;
-            height: 100%;
-            display: block;
-        }
-
-        /* Фоновые линии шин */
-        .bus-call-bg {
-            stroke: #006400;
-            stroke-width: 8px;
-            opacity: 0.3;
-        }
-        .bus-data-bg {
-            stroke: #00008B;
-            stroke-width: 8px;
-            opacity: 0.3;
-        }
-
-        /* Блоки архитектуры */
-        .block-rect {
-            fill: #ffffff;
-            stroke: #000000;
-            stroke-width: 1.5px;
-        }
-        .block-text {
-            font-size: 13px;
-            text-anchor: middle;
-            dominant-baseline: middle;
-            fill: #333;
-            font-weight: bold;
-            pointer-events: none;
-        }
-
-        /* Базовые классы для линий */
-        .line-out-call, .line-in-call, .line-out-data, .line-in-data, .line-bus-core {
-            transition: stroke 0.1s ease, stroke-width 0.1s ease;
-        }
-
-        /* ===== ДВУНАПРАВЛЕННЫЕ REQUEST ===== */
-        .conn-group.bidirectional .line-bidirectional {
-            stroke-width: 2px !important;
-            fill: none;
-        }
-
-        .conn-group.bidirectional .arrow-src,
-        .conn-group.bidirectional .arrow-tgt {
-            stroke: none;
-            fill: none;
-        }
-
-        /* ===== ВЫДЕЛЕНИЕ ПРИ ДВОЙНОМ КЛИКЕ (КРАСНАЯ ПЕТЛЯ) ===== */
-        .conn-group.bidirectional.active .line-bidirectional {
-            stroke: #ff0000 !important;
-            filter: drop-shadow(0 0 4px rgba(255,0,0,0.5));
-        }
-
-        .conn-group.bidirectional.active .arrow-src,
-        .conn-group.bidirectional.active .arrow-tgt {
-            marker-end: url(#arrowInDataRed) !important;
-        }
-
-        /* ===== ОДНОНАПРАВЛЕННЫЕ REQUEST ===== */
-        .conn-group[data-bidirectional="false"][data-is-data="true"] .conn-segment,
-        .conn-group[data-bidirectional="false"][data-is-data="true"] .line-bus-core {
-            stroke: #00bfff !important;
-            stroke-width: 1px !important;
-            opacity: 0.8;
-        }
-
-        /* ===== ACTION (верхняя шина) ===== */
-        .conn-group[data-is-data="false"] .line-out-call {
-            stroke: #008000 !important;
-        }
-        .conn-group[data-is-data="false"] .line-in-call {
-            stroke: #ffd700 !important;
-        }
-        .conn-group[data-is-data="false"] .line-bus-core {
-            stroke: #006400 !important;
-        }
-
-        /* Базовые стили для сегментов */
-        .conn-segment {
-            fill: none;
-            pointer-events: none;
-            transition: stroke 0.1s ease, stroke-width 0.1s ease;
-        }
-
-        /* Область для клика */
-        .hit-area {
-            fill: none;
-            stroke: transparent;
-            stroke-width: 12px;
-            pointer-events: stroke;
-            cursor: pointer;
-        }
-
-        /* Точки */
-        .dot {
-            r: 3;
-            pointer-events: all;
-            cursor: pointer;
-            transition: fill 0.2s ease;
-        }
-        .dot:hover {
-            fill: #ff0000 !important;
-        }
-
-        /* ===== ПОДСВЕТКА ПРИ НАВЕДЕНИИ (через класс hover-highlight) ===== */
-        .conn-group.hover-highlight .conn-segment,
-        .conn-group.hover-highlight .line-bus-core {
-            stroke: #ff0000 !important;
-            stroke-width: 2.5px !important;
-            opacity: 1 !important;
-        }
-
-        /* Для ACTION линий */
-        .conn-group[data-is-data="false"].hover-highlight .line-out-call,
-        .conn-group[data-is-data="false"].hover-highlight .line-in-call,
-        .conn-group[data-is-data="false"].hover-highlight .line-bus-core {
-            stroke: #ff0000 !important;
-            stroke-width: 2.5px !important;
-        }
-
-        /* Для однонаправленных REQUEST */
-        .conn-group[data-bidirectional="false"][data-is-data="true"].hover-highlight .conn-segment,
-        .conn-group[data-bidirectional="false"][data-is-data="true"].hover-highlight .line-bus-core {
-            stroke: #ff0000 !important;
-            stroke-width: 2.5px !important;
-        }
-
-        /* Для двунаправленных REQUEST */
-        .conn-group.bidirectional.hover-highlight .line-bidirectional {
-            stroke: #ff0000 !important;
-            stroke-width: 2.5px !important;
-        }
-
-        /* Стрелки для двунаправленных при подсветке */
-        .conn-group.bidirectional.hover-highlight .arrow-src,
-        .conn-group.bidirectional.hover-highlight .arrow-tgt {
-            marker-end: url(#arrowInDataRed) !important;
-        }
-
-        /* ===== ПОДСВЕТКА ПРИ НАВЕДЕНИИ (старый способ через :hover) ===== */
-        body:not(.has-active) .conn-group:hover .conn-segment,
-        body:not(.has-active) .conn-group:hover .line-bus-core {
-            stroke: #ff0000 !important;
-            stroke-width: 2.5px !important;
-            opacity: 1 !important;
-        }
-
-        /* ===== АКТИВНАЯ (ВЫДЕЛЕННАЯ) ЛИНИЯ ===== */
-        .conn-group.active .conn-segment,
-        .conn-group.active .line-bus-core {
-            stroke: #ff0000 !important;
-            stroke-width: 3px !important;
-            opacity: 1 !important;
-            filter: drop-shadow(0 0 4px rgba(255,0,0,0.5));
-        }
-
-        /* При активной линии отключаем подсветку остальных */
-        body.has-active .conn-group:not(.active):hover .conn-segment,
-        body.has-active .conn-group:not(.active):hover .line-bus-core {
-            stroke: inherit !important;
-            stroke-width: inherit !important;
-            opacity: 0.7 !important;
-        }
-
-        body.has-active .conn-group.bidirectional:not(.active):hover .line-bidirectional {
-            stroke: inherit !important;
-            stroke-width: inherit !important;
-        }
-
-        /* Объединенные линии (много связей) */
-        .merged-5 .conn-segment {
-            stroke-width: 5px;
-            opacity: 0.8;
-        }
-        .merged-10 .conn-segment {
-            stroke-width: 10px;
-            opacity: 1;
-        }
-
-        /* Всплывающая подсказка */
+        body { background: #ffffff; margin: 0; overflow: hidden; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: relative; cursor: grab; background: #fafafa; }
+        #canvas-container:active { cursor: grabbing; }
+        svg { width: 100%; height: 100%; display: block; }
+        .bus-call-bg { stroke: #006400; stroke-width: 8px; opacity: 0.1; }
+        .bus-data-bg { stroke: #00008B; stroke-width: 8px; opacity: 0.1; }
+        .block-rect { fill: #ffffff; stroke: #000000; stroke-width: 1.5px; }
+        .block-text { font-size: 13px; text-anchor: middle; dominant-baseline: middle; fill: #333; font-weight: bold; pointer-events: none; }
+        .conn-segment { fill: none; pointer-events: none; }
+        .hit-area { fill: none; stroke: transparent; stroke-width: 12px; pointer-events: stroke; cursor: pointer; }
+        .dot { r: 3; pointer-events: all; cursor: pointer; }
         .tooltip {
-            position: absolute;
-            background: rgba(0,0,0,0.9);
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            pointer-events: none;
-            visibility: hidden;
-            z-index: 1000;
-            white-space: nowrap;
-            border: 1px solid #ff0000;
-            font-family: monospace;
-            max-width: 400px;
-            white-space: normal;
-            word-break: break-word;
+            position: absolute; background: rgba(0,0,0,0.9); color: #fff; padding: 8px 12px;
+            border-radius: 4px; font-size: 12px; pointer-events: none; visibility: hidden;
+            z-index: 1000; font-family: monospace; max-width: 400px; word-break: break-all;
         }
-
-        /* Оверлей загрузки */
-        .loading-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.85);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 2000;
-            color: white;
-            font-size: 18px;
-            flex-direction: column;
-            backdrop-filter: blur(4px);
-        }
-
-        /* Сообщение об ошибке */
-        .error-message {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #ff4444;
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            z-index: 2000;
-            font-size: 14px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-
-        /* Кнопки управления */
-        .controls {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            display: flex;
-            gap: 10px;
-            z-index: 1000;
-        }
-
-        .btn {
-            background: rgba(0,0,0,0.7);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            backdrop-filter: blur(4px);
-            transition: all 0.2s ease;
-        }
-
-        .btn:hover {
-            background: rgba(0,0,0,0.9);
-            transform: scale(1.05);
-        }
-
-        /* Панель статистики */
         .stats-panel {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 8px;
-            font-size: 12px;
-            z-index: 1000;
-            backdrop-filter: blur(4px);
-            font-family: monospace;
-            text-align: right;
+            position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.6);
+            color: white; padding: 5px 10px; border-radius: 5px; font-size: 11px; font-family: monospace;
         }
     </style>
 </head>
@@ -319,31 +34,24 @@
         <g id="viewport">
             <line class="bus-call-bg" x1="-5000" y1="80" x2="5000" y2="80" />
             <line class="bus-data-bg" x1="-5000" y1="520" x2="5000" y2="520" />
-
             <g id="connections-layer"></g>
-
             <g id="blocks-layer">
-                <g transform="translate(20, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">1. Presentation</text></g>
-                <g transform="translate(215, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">2. Domain</text></g>
-                <g transform="translate(410, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">3. Data</text></g>
-                <g transform="translate(605, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">4. Infrastructure</text></g>
-                <g transform="translate(800, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">5. DI</text></g>
-                <g transform="translate(995, 275)"><rect class="block-rect" width="185" height="50" /><text class="block-text" x="92" y="25">6. Common / Utils</text></g>
+                <g transform="translate(20, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">Presentation</text></g>
+                <g transform="translate(215, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">Domain</text></g>
+                <g transform="translate(410, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">Data</text></g>
+                <g transform="translate(605, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">Infrastructure</text></g>
+                <g transform="translate(800, 275)"><rect class="block-rect" width="180" height="50" /><text class="block-text" x="90" y="25">DI</text></g>
+                <g transform="translate(995, 275)"><rect class="block-rect" width="185" height="50" /><text class="block-text" x="92" y="25">Common / Utils</text></g>
             </g>
-
             <g id="dots-layer"></g>
         </g>
     </svg>
 </div>
-
-<div class="controls">
-    <button class="btn" onclick="window.reloadVisualization()">Reload</button>
-    <button class="btn" onclick="window.loadFromFileDialog()">Load File</button>
-</div>
-
 <div id="stats-panel" class="stats-panel"></div>
 
-<script src="visualization.js"></script>
-<script src="loader.js"></script>
+<!-- Плагин заменит эти комментарии на реальный код и данные -->
+<script id="data-script">/*DATA_HERE*/</script>
+<script id="logic-script">/*LOGIC_HERE*/</script>
+
 </body>
 </html>

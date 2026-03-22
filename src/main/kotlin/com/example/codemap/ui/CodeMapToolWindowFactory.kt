@@ -1,7 +1,6 @@
 package com.example.codemap.ui
 
 import com.example.codemap.CodeMap.data.CodeMapCore
-import com.google.gson.Gson
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
@@ -10,9 +9,6 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
-import org.cef.browser.CefBrowser
-import org.cef.browser.CefFrame
-import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.*
 import javax.swing.*
 
@@ -69,24 +65,35 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
 
         showBtn.addActionListener {
             val jsonData = core.getJsonData()
-            if (jsonData == "{}") return@addActionListener
+            if (jsonData == "{}" || jsonData.isBlank()) {
+                JOptionPane.showMessageDialog(mainPanel, "Данные не найдены. Сначала выполните сканирование.")
+                return@addActionListener
+            }
             
-            val safeJson = Gson().toJson(jsonData)
-            
+            // 1. Читаем HTML
             val htmlStream = javaClass.getResourceAsStream("/webapp/index.html")
-            val htmlText = htmlStream?.bufferedReader()?.use { it.readText() } ?: "<h1>Error</h1>"
+            var htmlText = htmlStream?.bufferedReader()?.use { it.readText() } ?: "<h1>Error: HTML not found</h1>"
             
-            browser?.jbCefClient?.addLoadHandler(object : CefLoadHandlerAdapter() {
-                override fun onLoadEnd(browser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
-                    if (frame?.isMain == true) {
-                        browser?.executeJavaScript(
-                            "window.initData(JSON.parse($safeJson));", 
-                            browser.url, 0
-                        )
+            // 2. Читаем JS логику
+            val jsStream = javaClass.getResourceAsStream("/webapp/visualization.js")
+            val jsLogic = jsStream?.bufferedReader()?.use { it.readText() } ?: "console.error('JS not found')"
+            
+            // 3. Вставляем данные
+            htmlText = htmlText.replace("/*DATA_HERE*/", "window.INITIAL_DATA = $jsonData;")
+            
+            // 4. Вставляем JS логику и команду запуска
+            val fullJs = """
+                $jsLogic
+                document.addEventListener('DOMContentLoaded', () => {
+                    if (window.initVisualization) {
+                        window.initVisualization(window.INITIAL_DATA);
                     }
-                }
-            }, browser!!.cefBrowser)
-
+                });
+            """.trimIndent()
+            
+            htmlText = htmlText.replace("/*LOGIC_HERE*/", fullJs)
+            
+            // Загружаем всё как единый монолитный HTML
             browser?.loadHTML(htmlText)
         }
 
