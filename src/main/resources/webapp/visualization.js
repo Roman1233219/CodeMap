@@ -1,9 +1,7 @@
 // ==================== visualization.js ====================
 // Main visualization script for architecture dependencies
 
-// ==================== GLOBAL VARIABLES ====================
-
-window.INITIAL_DATA = window.INITIAL_DATA || null;
+window.INITIAL_DATA = null;
 const BASE_LINE_SPACING = 10;
 
 const blockConfig = {
@@ -33,13 +31,7 @@ function initDomElements() {
     }
 }
 
-// ==================== ZOOM & PAN ====================
-
-let scale = 1;
-let tx = 0;
-let ty = 0;
-let isDragging = false;
-let lastX, lastY;
+let scale = 1, tx = 0, ty = 0, isDragging = false, lastX, lastY;
 
 function handleWheel(e) {
     e.preventDefault();
@@ -59,19 +51,13 @@ function handleWheel(e) {
 }
 
 function handleMouseDown(e) {
-    if(e.button === 0) {
-        isDragging = true;
-        lastX = e.clientX;
-        lastY = e.clientY;
-    }
+    if(e.button === 0) { isDragging = true; lastX = e.clientX; lastY = e.clientY; }
 }
 
 window.onmousemove = (e) => {
     if (!isDragging) return;
-    tx += e.clientX - lastX;
-    ty += e.clientY - lastY;
-    lastX = e.clientX;
-    lastY = e.clientY;
+    tx += e.clientX - lastX; ty += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
     updateTransform();
 };
 
@@ -108,8 +94,6 @@ function updateArrowMarkers() {
     defs.appendChild(createM("arrowInDataLight", "#00bfff"));
 }
 
-// ==================== DRAWING ====================
-
 function buildFileToBlockMap(data) {
     fileToBlockMap.clear();
     if (!data || !data.blocks) return;
@@ -120,9 +104,7 @@ function buildFileToBlockMap(data) {
 
 function redrawConnections() {
     if (!window.INITIAL_DATA || !connLayer) return;
-    connLayer.innerHTML = "";
-    dotsLayer.innerHTML = "";
-
+    connLayer.innerHTML = ""; dotsLayer.innerHTML = "";
     const connections = [];
     Object.entries(window.INITIAL_DATA.blocks).forEach(([srcCat, sub]) => {
         Object.values(sub).forEach(files => files.forEach(file => {
@@ -152,12 +134,10 @@ function redrawConnections() {
         const isData = list[0].type === "REQUEST";
         const busY = isData ? 520 : 80;
         list.forEach((item, i) => {
-            const src = blockConfig[item.src];
-            const tgt = blockConfig[item.tgt];
+            const src = blockConfig[item.src], tgt = blockConfig[item.tgt];
             const xOut = Math.min(src.x + (i * spacing), src.x + src.w/2 - 2);
             const xIn = Math.max(tgt.x + tgt.w - (i * spacing), tgt.x + tgt.w/2 + 2);
-            const startY = isData ? src.y + src.h : src.y;
-            const endY = isData ? tgt.y + tgt.h : tgt.y;
+            const startY = isData ? src.y + src.h : src.y, endY = isData ? tgt.y + tgt.h : tgt.y;
 
             const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
             const color = isData ? (item.isBi ? "#000080" : "#00bfff") : "#006400";
@@ -165,49 +145,34 @@ function redrawConnections() {
 
             const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
             path.setAttribute("d", `M ${xOut} ${startY} L ${xOut} ${busY} L ${xIn} ${busY} L ${xIn} ${endY}`);
-            path.setAttribute("stroke", color);
-            path.setAttribute("fill", "none");
+            path.setAttribute("stroke", color); path.setAttribute("fill", "none");
             path.setAttribute("marker-end", `url(#${marker})`);
             if (isData && item.isBi) path.setAttribute("stroke-width", "2");
 
             const hit = path.cloneNode();
-            hit.setAttribute("stroke", "transparent");
-            hit.setAttribute("stroke-width", "10");
+            hit.setAttribute("stroke", "transparent"); hit.setAttribute("stroke-width", "10");
             hit.style.pointerEvents = "stroke";
             hit.onmouseenter = (e) => {
-                path.setAttribute("stroke", "#ff0000");
-                path.setAttribute("stroke-width", "3");
-                tooltip.innerText = item.label;
-                tooltip.style.visibility = "visible";
-                tooltip.style.left = (e.clientX + 10) + "px";
-                tooltip.style.top = (e.clientY + 10) + "px";
+                path.setAttribute("stroke", "#ff0000"); path.setAttribute("stroke-width", "3");
+                tooltip.innerText = item.label; tooltip.style.visibility = "visible";
+                tooltip.style.left = (e.clientX + 10) + "px"; tooltip.style.top = (e.clientY + 10) + "px";
             };
             hit.onmouseleave = () => {
                 path.setAttribute("stroke", color);
                 path.setAttribute("stroke-width", isData && item.isBi ? "2" : "1");
                 tooltip.style.visibility = "hidden";
             };
-
-            g.appendChild(path);
-            g.appendChild(hit);
-            connLayer.appendChild(g);
+            g.appendChild(path); g.appendChild(hit); connLayer.appendChild(g);
         });
     });
-
     if (statsPanel) statsPanel.innerText = `Total: ${connections.length} | Zoom: ${scale.toFixed(2)}x`;
 }
 
-function initVisualization(data) {
+window.initVisualization = (data) => {
     if (!data) return;
     initDomElements();
     window.INITIAL_DATA = data;
     buildFileToBlockMap(data);
     updateArrowMarkers();
     redrawConnections();
-}
-
-// Запуск
-window.initVisualization = initVisualization;
-document.addEventListener('DOMContentLoaded', () => {
-    if (window.INITIAL_DATA) initVisualization(window.INITIAL_DATA);
-});
+};

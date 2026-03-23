@@ -1,6 +1,8 @@
 package com.example.codemap.ui
 
 import com.example.codemap.CodeMap.data.CodeMapCore
+import com.example.codemap.CodeMap.server.CodeMapServer
+import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
@@ -15,6 +17,7 @@ import javax.swing.*
 class CodeMapToolWindowFactory : ToolWindowFactory {
 
     private lateinit var core: CodeMapCore
+    private var server: CodeMapServer? = null
     private lateinit var mainPanel: JBPanel<*>
     private lateinit var progressBar: JProgressBar
     private lateinit var scanBtn: JButton
@@ -24,6 +27,7 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         core = CodeMapCore(project)
+        server = CodeMapServer(project.basePath ?: "")
         mainPanel = JBPanel<JBPanel<*>>(BorderLayout())
 
         if (!JBCefApp.isSupported()) {
@@ -64,37 +68,14 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
         }
 
         showBtn.addActionListener {
-            val jsonData = core.getJsonData()
-            if (jsonData == "{}" || jsonData.isBlank()) {
-                JOptionPane.showMessageDialog(mainPanel, "Данные не найдены. Сначала выполните сканирование.")
-                return@addActionListener
-            }
+            // 1. Запускаем сервер (если еще не запущен)
+            server?.start(8080)
             
-            // 1. Читаем HTML
-            val htmlStream = javaClass.getResourceAsStream("/webapp/index.html")
-            var htmlText = htmlStream?.bufferedReader()?.use { it.readText() } ?: "<h1>Error: HTML not found</h1>"
+            // 2. Вызываем системный браузер
+            BrowserUtil.browse("http://localhost:8080/index.html")
             
-            // 2. Читаем JS логику
-            val jsStream = javaClass.getResourceAsStream("/webapp/visualization.js")
-            val jsLogic = jsStream?.bufferedReader()?.use { it.readText() } ?: "console.error('JS not found')"
-            
-            // 3. Вставляем данные
-            htmlText = htmlText.replace("/*DATA_HERE*/", "window.INITIAL_DATA = $jsonData;")
-            
-            // 4. Вставляем JS логику и команду запуска
-            val fullJs = """
-                $jsLogic
-                document.addEventListener('DOMContentLoaded', () => {
-                    if (window.initVisualization) {
-                        window.initVisualization(window.INITIAL_DATA);
-                    }
-                });
-            """.trimIndent()
-            
-            htmlText = htmlText.replace("/*LOGIC_HERE*/", fullJs)
-            
-            // Загружаем всё как единый монолитный HTML
-            browser?.loadHTML(htmlText)
+            // 3. Также обновляем внутренний браузер плагина
+            browser?.loadURL("http://localhost:8080/index.html")
         }
 
         exportBtn.addActionListener {

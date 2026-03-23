@@ -49,9 +49,21 @@
 </div>
 <div id="stats-panel" class="stats-panel"></div>
 
-<!-- Плагин заменит эти комментарии на реальный код и данные -->
-<script id="data-script">/*DATA_HERE*/</script>
-<script id="logic-script">/*LOGIC_HERE*/</script>
 
+<script>
+    // При загрузке страницы запрашиваем данные у сервера
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            const response = await fetch('/data.json');
+            const data = await response.json();
+            if (window.initVisualization) {
+                window.initVisualization(data);
+            }
+        } catch (e) {
+            console.error('Failed to load data:', e);
+        }
+    });
+</script>
+<script src="visualization.js"></script>
 </body>
 </html>
