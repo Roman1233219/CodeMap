@@ -329,7 +329,7 @@ class CodeMapCore(private val project: Project) {
             return
         }
         val desktopPath = System.getProperty("user.home") + File.separator + "Desktop"
-        val exportFile = File(desktopPath, "codemap_export.json")
+        val exportFile = File(desktopPath, "PSI.json")
         try {
             exportFile.writeText(jsonData)
             Messages.showInfoMessage(project, "Файл успешно экспортирован на рабочий стол: ${exportFile.absolutePath}", "Экспорт завершен")
