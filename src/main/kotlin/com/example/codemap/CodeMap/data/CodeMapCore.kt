@@ -27,30 +27,21 @@ data class CallNode(
     var targetType: String,
     val callOrder: Int,
     val lineNumber: Int,
-    val isConditional: Boolean,
-    val conditionBranch: String?,
     var nestedCalls: List<CallNode> = emptyList(),
+    var branches: List<BranchNode> = emptyList(),
     val isRecursive: Boolean = false,
     val isSystemCall: Boolean = false,
-    val isCallback: Boolean = false,
-    val callbackParameter: String? = null,
-    val isImplicit: Boolean = false,
-    val listenerLinks: List<String> = emptyList()
+    val isImplicit: Boolean = false
 )
 
 data class IntentLink(val from: String, val to: String, val type: String, val lineNumber: Int)
-data class BroadcastLink(val from: String, val to: String, val action: String, val lineNumber: Int)
 data class InboundCallNode(val fileName: String, val functionName: String, val functionId: String)
 
 data class BranchVariant(
     val id: String? = null,
     val case: String? = null,
-    val targetName: String? = null,
-    val targetFile: String? = null,
-    val targetId: String? = null,
-    val targetType: String? = null,
-    val lineNumber: Int? = null,
-    var nestedCalls: List<CallNode> = emptyList()
+    var nestedCalls: List<CallNode> = emptyList(),
+    var branches: List<BranchNode> = emptyList()
 )
 
 data class BranchNode(val type: String, val condition: String?, val lineNumber: Int, val branches: List<BranchVariant>)
@@ -68,8 +59,7 @@ data class FunctionNode(
     val lineEnd: Int,
     val calls: MutableList<CallNode>,
     val branches: MutableList<BranchNode>,
-    val inboundCalls: MutableList<InboundCallNode> = mutableListOf(),
-    @Transient val hasParams: Boolean = false
+    val inboundCalls: MutableList<InboundCallNode> = mutableListOf()
 )
 
 data class FileNode(val fileName: String, val filePath: String, val packageName: String, val functions: List<FunctionNode>)
@@ -79,8 +69,7 @@ data class Metadata(val parsedAt: String, val project: String, val totalFiles: I
 data class PSIData(
     val metadata: Metadata,
     val files: List<FileNode>,
-    val intentLinks: List<IntentLink> = emptyList(),
-    val broadcastLinks: List<BroadcastLink> = emptyList()
+    val intentLinks: List<IntentLink> = emptyList()
 )
 
 class CodeMapCore(private val project: Project) {
@@ -140,7 +129,7 @@ class CodeMapCore(private val project: Project) {
                         fn.hasReturn -> "REQUEST"
                         else -> "DATA_FLOW"
                     }
-                    fn.calls.forEach { linkCallDetails(it, 0, fn.id) }
+                    linkRecursive(fn)
                 }
                 onProgress(40 + ((index + 1).toFloat() / fileNodes.size * 50).toInt())
             }
@@ -187,10 +176,22 @@ class CodeMapCore(private val project: Project) {
             val isCurrentEmitter = points.any { it.isEmitter && it.functionName == fn.name && it.fileName == fn.id.substringBefore(".") }
             if (isCurrentEmitter) {
                 points.filter { !it.isEmitter }.forEach { collector ->
-                    fn.calls.add(CallNode(collector.functionName, collector.fileName, "${collector.fileName}.${collector.functionName}", "STATE", 0, 0, false, null, isImplicit = true))
+                    fn.calls.add(CallNode(collector.functionName, collector.fileName, "${collector.fileName}.${collector.functionName}", "STATE", 0, 0, isImplicit = true))
                     globalCallCount++
                 }
             }
+        }
+    }
+
+    private fun linkRecursive(fn: FunctionNode) {
+        fn.calls.forEach { linkCallDetails(it, 0, fn.id) }
+        fn.branches.forEach { linkBranchRecursive(it, fn.id) }
+    }
+
+    private fun linkBranchRecursive(branch: BranchNode, parentId: String) {
+        branch.branches.forEach { variant ->
+            variant.nestedCalls.forEach { linkCallDetails(it, 0, parentId) }
+            variant.branches.forEach { linkBranchRecursive(it, parentId) }
         }
     }
 
@@ -202,10 +203,13 @@ class CodeMapCore(private val project: Project) {
         val target = allFunctionsMap[targetId]
         if (target != null) {
             if (call.targetType == "INTERNAL") call.targetType = target.type
-            if (depth < 1 && targetId != parentId) {
+            if (depth < 1 && targetId != parentId && call.nestedCalls.isEmpty()) {
                 call.nestedCalls = target.calls.map { it.copy() }
+                call.branches = target.branches.map { it.copy() }
             }
         }
+        call.nestedCalls.forEach { linkCallDetails(it, depth + 1, parentId) }
+        call.branches.forEach { linkBranchRecursive(it, parentId) }
     }
 
     private fun collectFiles(v: VirtualFile, res: MutableList<VirtualFile>) {
@@ -220,7 +224,7 @@ class CodeMapCore(private val project: Project) {
         val functions = mutableListOf<FunctionNode>()
         if (psi is KtFile) {
             psi.accept(object : KtTreeVisitorVoid() {
-                override fun visitNamedFunction(f: KtNamedFunction) { functions.add(parseKtCallable(f, vFile.name, doc)); super.visitNamedFunction(f) }
+                override fun visitNamedFunction(f: KtNamedFunction) { functions.add(parseKtCallable(f, vFile.name, doc)) }
             })
         }
         return FileNode(vFile.name, vFile.path, (psi as? KtFile)?.packageFqName?.asString() ?: "", functions)
@@ -231,75 +235,80 @@ class CodeMapCore(private val project: Project) {
         val id = "$fileName.$name"
         val hasReturn = element.typeReference != null && element.typeReference?.text != "Unit"
         val isEntry = listOf("onCreate", "onStart", "onReceive", "onResume").any { name.contains(it) }
-        val calls = mutableListOf<CallNode>()
-        val branches = mutableListOf<BranchNode>()
-        var order = 0
-
-        element.accept(object : KtTreeVisitorVoid() {
-            override fun visitCallExpression(expression: KtCallExpression) {
-                if (expression.getParentOfType<KtNamedFunction>(true) == element) {
-                    calls.add(parseKtCall(expression, fileName, ++order, doc, id, element))
-                    globalCallCount++
-                }
-                super.visitCallExpression(expression)
-            }
-            
-            override fun visitIfExpression(expression: KtIfExpression) {
-                if (expression.getParentOfType<KtNamedFunction>(true) == element) {
-                    val condition = expression.condition?.text ?: "if"
-                    val variants = mutableListOf<BranchVariant>()
-                    
-                    variants.add(BranchVariant(id = "then", case = "true", nestedCalls = parseNestedCalls(expression.then, fileName, doc, id, element)))
-                    if (expression.`else` != null) {
-                        variants.add(BranchVariant(id = "else", case = "false", nestedCalls = parseNestedCalls(expression.`else`, fileName, doc, id, element)))
-                    }
-                    
-                    branches.add(BranchNode("IF", condition, doc?.getLineNumber(expression.textRange.startOffset) ?: 0, variants))
-                }
-                super.visitIfExpression(expression)
-            }
-            
-            override fun visitWhenExpression(expression: KtWhenExpression) {
-                if (expression.getParentOfType<KtNamedFunction>(true) == element) {
-                    val condition = expression.subjectExpression?.text ?: "when"
-                    val variants = expression.entries.map { entry ->
-                        BranchVariant(
-                            id = "case", 
-                            case = entry.conditions.joinToString { it.text } + (if (entry.isElse) "else" else ""),
-                            nestedCalls = parseNestedCalls(entry.expression, fileName, doc, id, element)
-                        )
-                    }
-                    branches.add(BranchNode("WHEN", condition, doc?.getLineNumber(expression.textRange.startOffset) ?: 0, variants))
-                }
-                super.visitWhenExpression(expression)
-            }
-
-            override fun visitTryExpression(expression: KtTryExpression) {
-                if (expression.getParentOfType<KtNamedFunction>(true) == element) {
-                    branches.add(BranchNode("ERROR", "try-catch", doc?.getLineNumber(expression.textRange.startOffset) ?: 0, listOf(
-                        BranchVariant(id = "try", case = "try", nestedCalls = parseNestedCalls(expression.tryBlock, fileName, doc, id, element)),
-                        *expression.catchClauses.map { 
-                            BranchVariant(id = "catch", case = it.catchParameter?.text ?: "catch", nestedCalls = parseNestedCalls(it.catchBody, fileName, doc, id, element))
-                        }.toTypedArray()
-                    )))
-                }
-                super.visitTryExpression(expression)
-            }
-        })
-
-        return FunctionNode(id, name, "UNKNOWN", element.text.substringBefore("{").trim(), element.valueParameters.map { ParameterNode(it.name ?: "", it.typeReference?.text ?: "Any", it.defaultValue?.text) }, hasReturn, element.typeReference?.text, isEntry, doc?.getLineNumber(element.textRange.startOffset) ?: 0, doc?.getLineNumber(element.textRange.endOffset) ?: 0, calls, branches)
+        val bodyData = parseBody(element.bodyExpression, fileName, doc, id, element)
+        return FunctionNode(id, name, "UNKNOWN", element.text.substringBefore("{").trim(), element.valueParameters.map { ParameterNode(it.name ?: "", it.typeReference?.text ?: "Any", it.defaultValue?.text) }, hasReturn, element.typeReference?.text, isEntry, doc?.getLineNumber(element.textRange.startOffset) ?: 0, doc?.getLineNumber(element.textRange.endOffset) ?: 0, bodyData.first, bodyData.second)
     }
 
-    private fun parseNestedCalls(container: KtElement?, fileName: String, doc: Document?, parentId: String, parentFunc: KtNamedFunction): List<CallNode> {
-        if (container == null) return emptyList()
-        val nested = mutableListOf<CallNode>()
+    private fun parseBody(container: KtElement?, fileName: String, doc: Document?, parentId: String, parentFunc: KtNamedFunction): Pair<MutableList<CallNode>, MutableList<BranchNode>> {
+        val calls = mutableListOf<CallNode>()
+        val branches = mutableListOf<BranchNode>()
+        if (container == null) return calls to branches
+        var order = 0
         container.accept(object : KtTreeVisitorVoid() {
             override fun visitCallExpression(expression: KtCallExpression) {
-                nested.add(parseKtCall(expression, fileName, 0, doc, parentId, parentFunc))
-                super.visitCallExpression(expression)
+                val call = parseKtCall(expression, fileName, ++order, doc, parentId, parentFunc)
+                calls.add(call)
+                globalCallCount++
+                if (call.targetName in listOf("startActivity", "startService", "sendBroadcast")) {
+                    val intentArg = expression.valueArguments.firstOrNull()?.getArgumentExpression()
+                    val info = resolveIntentInfo(intentArg)
+                    if (info?.targetClass != null) {
+                        intentLinks.add(IntentLink(parentId, info.targetClass, if (call.targetName == "startService") "service" else "activity", doc?.getLineNumber(expression.textRange.startOffset) ?: 0))
+                    }
+                }
+                if (call.targetName in listOf("emit", "collect", "observe", "postValue")) {
+                    val streamName = (expression.parent as? KtDotQualifiedExpression)?.receiverExpression?.text ?: "this"
+                    reactivePoints.getOrPut(streamName) { mutableListOf() }.add(ReactivePoint(fileName, parentFunc.name ?: "anon", call.targetName == "emit", streamName))
+                }
+            }
+            override fun visitProperty(property: KtProperty) {
+                if (property.initializer != null) {
+                    val pName = property.name ?: "temp"
+                    calls.add(CallNode("val $pName =", "Local", "local.$pName", "DATA_FLOW", ++order, doc?.getLineNumber(property.textRange.startOffset) ?: 0))
+                }
+                super.visitProperty(property)
+            }
+            override fun visitBinaryExpression(expression: KtBinaryExpression) {
+                if (expression.operationReference.getReferencedName() == "=") {
+                    val left = expression.left?.text ?: ""
+                    val isUI = listOf(".text", ".visibility", ".adapter", ".color").any { left.contains(it) }
+                    calls.add(CallNode("$left =", "UI", "ui.$left", if (isUI) "UI" else "DATA_FLOW", ++order, doc?.getLineNumber(expression.textRange.startOffset) ?: 0, isSystemCall = isUI))
+                }
+                super.visitBinaryExpression(expression)
+            }
+            override fun visitIfExpression(expression: KtIfExpression) {
+                expression.condition?.accept(this)
+                val condition = expression.condition?.text ?: "if"
+                val variants = mutableListOf<BranchVariant>()
+                val thenBody = parseBody(expression.then, fileName, doc, parentId, parentFunc)
+                variants.add(BranchVariant(id = "then", case = "true", nestedCalls = thenBody.first, branches = thenBody.second))
+                if (expression.`else` != null) {
+                    val elseBody = parseBody(expression.`else`, fileName, doc, parentId, parentFunc)
+                    variants.add(BranchVariant(id = "else", case = "false", nestedCalls = elseBody.first, branches = elseBody.second))
+                }
+                branches.add(BranchNode("IF", condition, doc?.getLineNumber(expression.textRange.startOffset) ?: 0, variants))
+            }
+            override fun visitWhenExpression(expression: KtWhenExpression) {
+                expression.subjectExpression?.accept(this)
+                val condition = expression.subjectExpression?.text ?: "when"
+                val variants = expression.entries.map { entry ->
+                    val body = parseBody(entry.expression, fileName, doc, parentId, parentFunc)
+                    BranchVariant(id = "case", case = entry.conditions.joinToString { it.text } + (if (entry.isElse) "else" else ""), nestedCalls = body.first, branches = body.second)
+                }
+                branches.add(BranchNode("WHEN", condition, doc?.getLineNumber(expression.textRange.startOffset) ?: 0, variants))
+            }
+            override fun visitTryExpression(expression: KtTryExpression) {
+                val tryBody = parseBody(expression.tryBlock, fileName, doc, parentId, parentFunc)
+                val variants = mutableListOf<BranchVariant>()
+                variants.add(BranchVariant(id = "try", case = "try", nestedCalls = tryBody.first, branches = tryBody.second))
+                expression.catchClauses.forEach { 
+                    val catchBody = parseBody(it.catchBody, fileName, doc, parentId, parentFunc)
+                    variants.add(BranchVariant(id = "catch", case = it.catchParameter?.text ?: "catch", nestedCalls = catchBody.first, branches = catchBody.second))
+                }
+                branches.add(BranchNode("ERROR", "try-catch", doc?.getLineNumber(expression.textRange.startOffset) ?: 0, variants))
             }
         })
-        return nested
+        return calls to branches
     }
 
     private fun parseKtCall(expr: KtCallExpression, fileName: String, order: Int, doc: Document?, parentId: String, parentFunc: KtNamedFunction): CallNode {
@@ -309,16 +318,13 @@ class CodeMapCore(private val project: Project) {
         val tFile = if (isSys) "System" else res?.containingFile?.name ?: "Unknown"
         val category = determineCategory(targetName, isSys)
         val nested = mutableListOf<CallNode>()
-
-        if (targetName in listOf("startActivity", "startService", "sendBroadcast")) {
-            val intentArg = expr.valueArguments.firstOrNull()?.getArgumentExpression()
-            val info = resolveIntentInfo(intentArg)
-            if (info != null) {
-                if (targetName != "sendBroadcast") info.targetClass?.let { intentLinks.add(IntentLink(parentId, it, if (targetName == "startService") "service" else "activity", doc?.getLineNumber(expr.textRange.startOffset) ?: 0)) }
-            }
+        val nestedBranches = mutableListOf<BranchNode>()
+        expr.lambdaArguments.forEach { 
+             val body = parseBody(it.getLambdaExpression()?.bodyExpression, fileName, doc, parentId, parentFunc)
+             nested.addAll(body.first)
+             nestedBranches.addAll(body.second)
         }
-
-        return CallNode(targetName, tFile, "$tFile.$targetName", category, order, doc?.getLineNumber(expr.textRange.startOffset) ?: 0, false, null, nestedCalls = nested, isSystemCall = isSys, isRecursive = "$tFile.$targetName" == parentId)
+        return CallNode(targetName, tFile, "$tFile.$targetName", category, order, doc?.getLineNumber(expr.textRange.startOffset) ?: 0, nestedCalls = nested, branches = nestedBranches, isSystemCall = isSys, isRecursive = "$tFile.$targetName" == parentId)
     }
 
     private fun determineCategory(name: String, isSystem: Boolean): String {
@@ -327,7 +333,7 @@ class CodeMapCore(private val project: Project) {
             name in listOf("launch", "async", "withContext", "runBlocking", "delay") -> "ASYNC"
             name in listOf("setText", "setVisibility", "setBackgroundColor", "findViewById", "inflate", "show", "dismiss", "animate") -> "UI"
             name in listOf("Log", "d", "e", "w", "i", "println") -> "LOG"
-            name in listOf("getString", "putString", "edit", "apply", "insert", "query", "delete") -> "STORAGE"
+            name in listOf("getSharedPreferences", "getString", "putString", "edit", "apply", "insert", "query", "delete") -> "STORAGE"
             name in listOf("startActivity", "startService", "sendBroadcast", "Intent") -> "ANDROID"
             name in listOf("observe", "collect", "emit", "postValue") -> "STATE"
             name in listOf("runCatching", "onFailure", "onSuccess") -> "ERROR"

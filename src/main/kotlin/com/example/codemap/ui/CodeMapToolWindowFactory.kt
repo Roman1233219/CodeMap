@@ -151,11 +151,12 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
         val detectorJs = javaClass.getResourceAsStream("/webapp/android-detector.js")?.bufferedReader()?.readText() ?: ""
 
         // Инъектируем функцию-мост для вызова из JS
+        // Используем маркер для безопасной инъекции данных
         val finalHtml = htmlResource
             .replace("<script src=\"render.js\"></script>", "<script>$renderJs</script>")
             .replace("<script src=\"android-detector.js\"></script>", "<script>$detectorJs</script>")
             .replace(
-                "<script>",
+                "<!-- DATA_INJECTION_MARKER -->",
                 """
                 <script>
                     window.PSI_DATA = $psiJson;
@@ -163,6 +164,7 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
                     window.jumpToCode = function(path, line) {
                         ${jsQuery.inject("path + '|' + line")}
                     };
+                </script>
                 """.trimIndent()
             )
 

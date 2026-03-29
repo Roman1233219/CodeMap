@@ -1,4 +1,4 @@
-// render.js - CodeMap Renderer v30 FULL (Fixed Filtering & Recursion)
+// render.js - CodeMap Renderer v31 FULL (Recursive Branches & Root Context Fix)
 
 let allFiles = [];
 let globalPsiData = null;
@@ -10,7 +10,8 @@ let activeFilters = {
     "ANDROID": true, "STATE": true, "ERROR": true, "INTERNAL": true, "SYSTEM": true,
     "ACTION": true, "REQUEST": true, "DATA_FLOW": true
 };
-window.isGlobalCollapsed = true; // По умолчанию свернуто
+window.isGlobalCollapsed = true;
+window.currentAnalysisRoot = null; // Хранит текущую анализируемую функцию (корень цепочки)
 
 window.globalPsiData = null;
 window.allFunctionsMap = allFunctionsMap;
@@ -155,24 +156,15 @@ function applySearch(query) {
 
 function toggleFilter(type, isEnabled) {
     activeFilters[type] = isEnabled;
-    // Маппинг для системных подтипов
     if (type === "SYSTEM") {
         ["ACTION", "REQUEST", "DATA_FLOW", "INTERNAL"].forEach(t => activeFilters[t] = isEnabled);
     }
-    const activeRoot = document.querySelector('.chain-card.active');
-    if (activeRoot) {
-        const func = allFunctionsMap.get(activeRoot.dataset.funcId);
-        if (func) renderBidirectionalChain(func);
-    }
+    if (window.currentAnalysisRoot) renderBidirectionalChain(window.currentAnalysisRoot);
 }
 
 function toggleGlobalCollapse() {
     window.isGlobalCollapsed = !window.isGlobalCollapsed;
-    const activeRoot = document.querySelector('.chain-card.active');
-    if (activeRoot) {
-        const func = allFunctionsMap.get(activeRoot.dataset.funcId);
-        if (func) renderBidirectionalChain(func);
-    }
+    if (window.currentAnalysisRoot) renderBidirectionalChain(window.currentAnalysisRoot);
 }
 
 // --- ОТРИСОВКА ДЕРЕВА ---
@@ -224,7 +216,7 @@ function renderFileTree(files) {
     });
 }
 
-// --- ЛОГИКА ЦЕПОЧКИ ---
+// --- ЛОГИКА ЦЕПОЧКИ (ФИКСИРОВАННАЯ) ---
 
 function buildFullPath(func, visited = new Set()) {
     const path = { upstream: [], current: func, downstream: [] };
@@ -239,60 +231,57 @@ function buildFullPath(func, visited = new Set()) {
         }
     });
 
-    function processElements(currentFunc, depth) {
-        if (!currentFunc) return;
-
-        // 1. Обработка обычных вызовов
-        currentFunc.calls?.forEach(c => {
+    // Рекурсивный обработчик элементов
+    function processContainer(calls, branches, depth) {
+        // Обычные вызовы
+        calls?.forEach(c => {
             const type = c.targetType || "INTERNAL";
             if (activeFilters[type] !== false) {
                 const callee = allFunctionsMap.get(c.targetId);
                 path.downstream.push({ type: 'call', data: c, callee: callee, depth: depth });
 
-                // Рекурсия если НЕ свернуто
+                // Если есть вложенные ветки в самом вызове (например в лямбде)
+                if (c.branches?.length > 0) {
+                    processContainer([], c.branches, depth + 1);
+                }
+
                 if (!window.isGlobalCollapsed && callee && !visited.has(callee.id)) {
-                    processElements(callee, depth + 1);
+                    processContainer(callee.calls, callee.branches, depth + 1);
                 }
             }
         });
 
-        // 2. Обработка ветвлений
-        currentFunc.branches?.forEach((branch, bIndex) => {
-            const selectionKey = `${currentFunc.id}.${bIndex}`;
+        // Ветвления
+        branches?.forEach((branch, bIndex) => {
+            const selectionKey = `${func.id}.${branch.lineNumber}.${bIndex}`;
             const selectedIdx = selectedBranches[selectionKey];
 
             if (selectedIdx !== undefined) {
                 const variant = branch.branches[selectedIdx];
                 path.downstream.push({ type: 'branch-header', data: branch, selectedVariant: variant, depth: depth });
 
-                variant.nestedCalls?.forEach(nc => {
-                    const nt = nc.targetType || "INTERNAL";
-                    if (activeFilters[nt] !== false) {
-                        const nCallee = allFunctionsMap.get(nc.targetId);
-                        path.downstream.push({ type: 'call', data: nc, callee: nCallee, depth: depth + 1 });
-
-                        if (!window.isGlobalCollapsed && nCallee && !visited.has(nCallee.id)) {
-                            processElements(nCallee, depth + 2);
-                        }
-                    }
-                });
+                // Рекурсивно обрабатываем содержимое выбранной ветки
+                processContainer(variant.nestedCalls, variant.branches, depth + 1);
             } else {
-                path.downstream.push({ type: 'selector', data: branch, index: bIndex, funcId: currentFunc.id, depth: depth });
+                path.downstream.push({ type: 'selector', data: branch, index: bIndex, funcId: func.id, key: selectionKey, depth: depth });
             }
         });
     }
 
-    processElements(func, 0);
+    processContainer(func.calls, func.branches, 0);
     return path;
 }
 
-function selectBranch(funcId, branchIndex, variantIndex) {
-    selectedBranches[`${funcId}.${branchIndex}`] = variantIndex;
-    const func = allFunctionsMap.get(funcId);
-    if (func) renderBidirectionalChain(func);
+function selectBranch(selectionKey, variantIndex) {
+    selectedBranches[selectionKey] = variantIndex;
+    // Перерисовываем от текущего корня анализа, чтобы не терять контекст
+    if (window.currentAnalysisRoot) {
+        renderBidirectionalChain(window.currentAnalysisRoot);
+    }
 }
 
 function renderBidirectionalChain(func) {
+    window.currentAnalysisRoot = func; // Запоминаем корень
     const container = document.getElementById('content');
     const path = buildFullPath(func);
 
@@ -319,7 +308,7 @@ function renderBidirectionalChain(func) {
                         return `<div ${indent}>${(item.callee ? renderCompactCard(item.callee, item.data) : renderSystemCallCard(item.data))}</div>` + arrow();
                     }
                     if (item.type === 'selector') {
-                        return `<div ${indent}>${renderBranchSelector(item.funcId, item.data, item.index)}</div>` + arrow();
+                        return `<div ${indent}>${renderBranchSelector(item.key, item.data)}</div>` + arrow();
                     }
                     if (item.type === 'branch-header') {
                         return `<div ${indent} style="color:#4caf50; font-size:10px; margin-bottom:8px;">↳ Выбрано: ${escapeHtml(item.selectedVariant.case)}</div>`;
@@ -343,13 +332,13 @@ function renderBidirectionalChain(func) {
     });
 }
 
-function renderBranchSelector(funcId, branch, bIndex) {
+function renderBranchSelector(selectionKey, branch) {
     return `
         <div class="branch-selector">
             <div class="branch-title">❓ Условие: ${escapeHtml(branch.condition || branch.type)}</div>
             <div class="branch-options">
                 ${branch.branches.map((v, vIdx) => `
-                    <div class="branch-option" onclick="selectBranch('${funcId}', ${bIndex}, ${vIdx})">
+                    <div class="branch-option" onclick="selectBranch('${selectionKey}', ${vIdx})">
                         <span class="branch-case">${escapeHtml(v.case || 'вариант')}</span>
                         <span style="font-size:9px; opacity:0.5;">(${v.nestedCalls?.length || 0} вызовов)</span>
                     </div>
@@ -390,7 +379,7 @@ function getCallTypeIcon(type) {
 }
 
 function getTypeClass(t) { return `type-${(t || 'unknown').toLowerCase()}`; }
-function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+function escapeHtml(t) { if(!t) return ""; const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
 function getFunctionTooltip(f) {
     return `<div style="font-weight:bold;">📁 ${getFileNameFromId(f.id)}</div><div>🔧 ${escapeHtml(f.name)}</div><div style="border-top:1px solid #3a6a3a;margin:4px 0;"></div><div>📥 Входящие: ${f.inboundCalls?.length || 0}</div><div>📤 Исходящие: ${f.calls?.length || 0}</div>`;
 }
