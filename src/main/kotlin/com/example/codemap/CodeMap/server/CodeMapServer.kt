@@ -23,6 +23,10 @@ class CodeMapServer(private val projectPath: String) {
                         val js = javaClass.getResourceAsStream("/webapp/visualization.js")?.bufferedReader()?.readText() ?: ""
                         js to "application/javascript"
                     }
+                    path == "/system_functions.json" -> {
+                        val json = javaClass.getResourceAsStream("/webapp/system_functions.json")?.bufferedReader()?.readText() ?: "{}"
+                        json to "application/json"
+                    }
                     path == "/data.json" -> {
                         val file = File("$projectPath/codemap_data.json")
                         val json = if (file.exists()) file.readText(StandardCharsets.UTF_8) else "{}"
@@ -33,6 +37,8 @@ class CodeMapServer(private val projectPath: String) {
 
                 val bytes = response.toByteArray(StandardCharsets.UTF_8)
                 exchange.responseHeaders.add("Content-Type", "$contentType; charset=utf-8")
+                // Добавляем CORS, чтобы JS мог грузить данные, если запуск идет не через сервер (на всякий случай)
+                exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
             }
