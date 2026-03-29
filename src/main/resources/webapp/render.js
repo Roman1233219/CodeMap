@@ -1,416 +1,407 @@
-// render.js - CodeMap Renderer v23
-// Полноценная двунаправленная визуализация с inboundCalls
-// Сквозной путь: точка входа → текущая функция → конец цепочки
+// render.js - CodeMap Renderer v30 FULL (Fixed Filtering & Recursion)
 
-// Глобальные переменные
 let allFiles = [];
 let globalPsiData = null;
 let allFunctionsMap = new Map();
 let systemDescriptions = {};
+let selectedBranches = {}; // Хранит выбор: { "funcId.branchIndex": variantIndex }
+let activeFilters = {
+    "LOG": true, "UI": true, "ASYNC": true, "STORAGE": true, "NETWORK": true,
+    "ANDROID": true, "STATE": true, "ERROR": true, "INTERNAL": true, "SYSTEM": true,
+    "ACTION": true, "REQUEST": true, "DATA_FLOW": true
+};
+window.isGlobalCollapsed = true; // По умолчанию свернуто
 
-// Экспортируем для других скриптов
 window.globalPsiData = null;
 window.allFunctionsMap = allFunctionsMap;
-window.findFunctionByIdGlobal = findFunctionById;
-window.renderBidirectionalChain = renderBidirectionalChain;
+
+// --- ЗАГРУЗКА ДАННЫХ ---
+async function loadSystemDescriptions() {
+    if (window.SYSTEM_FUNCTIONS && Object.keys(window.SYSTEM_FUNCTIONS).length > 0) {
+        systemDescriptions = window.SYSTEM_FUNCTIONS;
+        return;
+    }
+    try {
+        const response = await fetch('system_functions.json');
+        systemDescriptions = await response.json();
+    } catch (e) {}
+}
 
 async function loadAndRender() {
     try {
-        // Данные теперь приходят из window, инъектированные плагином
-        globalPsiData = window.PSI_DATA || {};
-        systemDescriptions = window.SYSTEM_FUNCTIONS || {};
-
+        await loadSystemDescriptions();
+        globalPsiData = (window.PSI_DATA && window.PSI_DATA.files) ? window.PSI_DATA : await (await fetch('PSI.json')).json();
         window.globalPsiData = globalPsiData;
 
-        console.log(`✅ Загружено ${Object.keys(systemDescriptions).length} описаний системных функций`);
-
-        // ИНИЦИАЛИЗИРУЕМ ДЕТЕКТОР СРАЗУ ПОСЛЕ ЗАГРУЗКИ ДАННЫХ
         if (typeof AndroidComponentDetector !== 'undefined') {
             window.androidDetector = new AndroidComponentDetector(globalPsiData);
-            console.log('✅ Детектор инициализирован при загрузке');
-        } else {
-            console.warn('AndroidComponentDetector не найден, ждем загрузки');
         }
 
         buildFunctionsMap(globalPsiData);
         allFiles = extractFiles(globalPsiData);
-
-        allFiles.sort((a, b) => {
-            const aHasEntry = a.functions.some(f => f.isEntryPoint === true);
-            const bHasEntry = b.functions.some(f => f.isEntryPoint === true);
-
-            if (aHasEntry && !bHasEntry) return -1;
-            if (!aHasEntry && bHasEntry) return 1;
-            return a.name.localeCompare(b.name);
-        });
-
-        document.getElementById('counter').innerHTML = `Файлов: ${allFiles.length}`;
         renderFileTree(allFiles);
-
+        initContextMenu();
     } catch (error) {
-        console.error('Ошибка загрузки:', error);
-        const fileList = document.getElementById('fileList');
-        const content = document.getElementById('content');
-        if (fileList) fileList.innerHTML = `<div class="empty-state">[ ошибка: ${error.message} ]</div>`;
-        if (content) content.innerHTML = `<div class="empty-state">[ ошибка: ${error.message} ]</div>`;
+        console.error("Ошибка загрузки:", error);
     }
+}
+
+// --- КОНТЕКСТНОЕ МЕНЮ ---
+function initContextMenu() {
+    const menu = document.getElementById('context-menu') || document.createElement('div');
+    menu.id = 'context-menu';
+    menu.style.cssText = `
+        display: none; position: fixed; z-index: 10000;
+        background: #1e1e1e; border: 1px solid #3c3c3c; border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5); padding: 4px 0; min-width: 160px;
+    `;
+    if (!menu.parentElement) document.body.appendChild(menu);
+
+    document.addEventListener('click', () => menu.style.display = 'none');
+    document.addEventListener('contextmenu', (e) => {
+        const card = e.target.closest('.chain-card, .function-item');
+        if (card && card.dataset.funcId) {
+            e.preventDefault();
+            const funcId = card.dataset.funcId;
+            const func = allFunctionsMap.get(funcId);
+            const fileData = globalPsiData.files.find(f => f.functions.some(fn => fn.id === funcId));
+
+            if (func && fileData) {
+                menu.innerHTML = `<div class="menu-item" style="padding: 8px 12px; cursor: pointer; color: #ccc; font-size: 12px;"
+                    onclick="window.jumpToCode('${fileData.filePath.replace(/\\/g, '\\\\')}', ${func.lineStart})">
+                    🔍 Перейти к коду
+                </div>`;
+                menu.style.display = 'block';
+                menu.style.left = e.pageX + 'px';
+                menu.style.top = e.pageY + 'px';
+            }
+        } else {
+            menu.style.display = 'none';
+        }
+    });
 }
 
 function buildFunctionsMap(data) {
     allFunctionsMap.clear();
-    if (!data.files) return;
-
-    for (const file of data.files) {
-        if (!file.functions) continue;
-        for (const func of file.functions) {
-            allFunctionsMap.set(func.id, func);
-        }
-    }
-    console.log(`Построена карта функций: ${allFunctionsMap.size} функций`);
+    data.files?.forEach(file => {
+        file.functions?.forEach(func => allFunctionsMap.set(func.id, func));
+    });
 }
 
 function extractFiles(data) {
-    const files = [];
-    if (!data.files) return files;
-
-    for (const file of data.files) {
-        if (!file.functions || file.functions.length === 0) continue;
-
-        files.push({
-            id: files.length,
-            name: file.fileName,
-            filePath: file.filePath,
-            functions: file.functions.map(func => ({
-                id: func.id,
-                name: func.name,
-                type: func.type,
-                signature: func.signature,
-                parameters: func.parameters,
-                hasReturn: func.hasReturn,
-                isEntryPoint: func.isEntryPoint || false,
-                calls: func.calls || [],
-                branches: func.branches || [],
-                inboundCalls: func.inboundCalls || [],
-                listenerLinks: func.listenerLinks || []
-            }))
-        });
-    }
-
-    return files;
+    return data.files?.map(file => ({
+        name: file.fileName,
+        filePath: file.filePath,
+        functions: file.functions || []
+    })) || [];
 }
+
+function getFileNameFromId(id) { return id?.split('.')?.[0] || ''; }
+
+function findFunctionById(id) {
+    return allFunctionsMap.get(id);
+}
+
+function highlightFileByFuncId(id) {
+    const fileName = getFileNameFromId(id);
+    const headers = document.querySelectorAll('.file-header');
+    headers.forEach(h => {
+        if (h.querySelector('.file-name').textContent.includes(fileName)) {
+            const exp = h.dataset.expanded === 'true';
+            if (!exp) h.click();
+            h.classList.add('highlighted');
+            h.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(() => h.classList.remove('highlighted'), 2000);
+        }
+    });
+}
+
+// --- ПОИСК И ФИЛЬТРАЦИЯ ---
+
+function applySearch(query) {
+    const q = query.toLowerCase();
+    const nodes = document.querySelectorAll('.file-tree-node');
+
+    nodes.forEach(node => {
+        const fileName = node.querySelector('.file-name').textContent.toLowerCase();
+        const functions = node.querySelectorAll('.function-item');
+        let hasVisibleFunc = false;
+
+        functions.forEach(f => {
+            const funcName = f.querySelector('.func-name').textContent.toLowerCase();
+            const match = funcName.includes(q) || fileName.includes(q);
+            f.style.display = match ? 'flex' : 'none';
+            if (match) hasVisibleFunc = true;
+        });
+
+        node.style.display = (fileName.includes(q) || hasVisibleFunc) ? 'block' : 'none';
+        if (q && (fileName.includes(q) || hasVisibleFunc)) {
+            const header = node.querySelector('.file-header');
+            if (header.dataset.expanded !== 'true') header.click();
+        }
+    });
+
+    document.querySelectorAll('.chain-card').forEach(card => {
+        const name = card.querySelector('.card-name')?.textContent.toLowerCase() || "";
+        if (q && name.includes(q)) {
+            card.style.border = "2px solid #00ff00";
+            card.style.boxShadow = "0 0 15px #00ff00";
+        } else {
+            card.style.border = "";
+            card.style.boxShadow = "";
+        }
+    });
+}
+
+function toggleFilter(type, isEnabled) {
+    activeFilters[type] = isEnabled;
+    // Маппинг для системных подтипов
+    if (type === "SYSTEM") {
+        ["ACTION", "REQUEST", "DATA_FLOW", "INTERNAL"].forEach(t => activeFilters[t] = isEnabled);
+    }
+    const activeRoot = document.querySelector('.chain-card.active');
+    if (activeRoot) {
+        const func = allFunctionsMap.get(activeRoot.dataset.funcId);
+        if (func) renderBidirectionalChain(func);
+    }
+}
+
+function toggleGlobalCollapse() {
+    window.isGlobalCollapsed = !window.isGlobalCollapsed;
+    const activeRoot = document.querySelector('.chain-card.active');
+    if (activeRoot) {
+        const func = allFunctionsMap.get(activeRoot.dataset.funcId);
+        if (func) renderBidirectionalChain(func);
+    }
+}
+
+// --- ОТРИСОВКА ДЕРЕВА ---
 
 function renderFileTree(files) {
     const container = document.getElementById('fileList');
-
-    if (files.length === 0) {
-        container.innerHTML = '<div class="empty-state">[ нет файлов ]</div>';
-        return;
-    }
-
     let html = '';
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const fileId = `file-${i}`;
-        const hasEntryPoint = file.functions.some(f => f.isEntryPoint === true);
-
-        let pathHint = '';
-        if (file.filePath) {
-            const parts = file.filePath.split(/[\\/]/);
-            const parentFolder = parts[parts.length - 2];
-            if (parentFolder && parentFolder !== 'java' && parentFolder !== 'kotlin') {
-                pathHint = ` [${parentFolder}]`;
-            }
-        }
-
+    files.forEach((file, i) => {
+        const hasEntry = file.functions.some(f => f.isEntryPoint);
         html += `
             <div class="file-tree-node">
-                <div class="file-header ${hasEntryPoint ? 'entry-point' : ''}" data-file-id="${i}" data-expanded="false">
+                <div class="file-header" data-file-id="${i}" data-expanded="false">
                     <span class="file-toggle">▶</span>
-                    <span class="file-icon">${hasEntryPoint ? '⭐' : '📄'}</span>
-                    <span class="file-name" title="${escapeHtml(file.filePath || '')}">
-                        ${escapeHtml(file.name)}${pathHint ? `<span class="file-path-hint">${escapeHtml(pathHint)}</span>` : ''}
-                    </span>
-                    <span class="file-count">(${file.functions.length})</span>
+                    <span class="file-icon">${hasEntry ? '⭐' : '📄'}</span>
+                    <span class="file-name">${escapeHtml(file.name)}</span>
                 </div>
-                <div class="file-functions" id="${fileId}" style="display: none;">
-        `;
-
-        for (const func of file.functions) {
-            const typeClass = getTypeClass(func.type);
-            const isEmpty = isFunctionBodyEmpty(func);
-            const isSystem = window.androidDetector?.isSystemCallback(func);
-            const tooltipHtml = getFunctionTooltip(func);
-
-            let icon = '🔧';
-            if (func.isEntryPoint) {
-                icon = '🚀';
-            } else if (isEmpty) {
-                icon = '⚰️';
-            } else if (isSystem) {
-                icon = '⚙️';
-            }
-
-            html += `
-                <div class="function-item ${typeClass} tooltip" data-func-id="${escapeHtml(func.id)}">
-                    <span class="func-icon">${icon}</span>
-                    <span class="func-name">${escapeHtml(func.name)}</span>
-                    <span class="func-type-badge ${typeClass}">${getTypeLabel(func.type)}</span>
-                    <span class="func-badge">📥 ${func.inboundCalls?.length || 0}</span>
-                    <span class="func-badge">📤 ${func.calls?.length || 0}</span>
-                    <div class="tooltip-text">${tooltipHtml}</div>
+                <div class="file-functions" id="file-${i}" style="display: none;">
+                    ${file.functions.map(f => `
+                        <div class="function-item ${getTypeClass(f.type)} tooltip" data-func-id="${escapeHtml(f.id)}">
+                            <span class="func-icon">${f.isEntryPoint ? '🚀' : '🔧'}</span>
+                            <span class="func-name">${escapeHtml(f.name)}</span>
+                            <div class="tooltip-text">${getFunctionTooltip(f)}</div>
+                        </div>
+                    `).join('')}
                 </div>
-            `;
-        }
-
-        html += `</div></div>`;
-    }
-
+            </div>`;
+    });
     container.innerHTML = html;
 
-    document.querySelectorAll('.file-header').forEach(header => {
-        header.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const fileId = header.dataset.fileId;
-            const isExpanded = header.dataset.expanded === 'true';
-            const functionsDiv = document.getElementById(`file-${fileId}`);
-            const toggleSpan = header.querySelector('.file-toggle');
-
-            if (isExpanded) {
-                functionsDiv.style.display = 'none';
-                toggleSpan.textContent = '▶';
-                header.dataset.expanded = 'false';
-            } else {
-                functionsDiv.style.display = 'block';
-                toggleSpan.textContent = '▼';
-                header.dataset.expanded = 'true';
-            }
-        });
+    document.querySelectorAll('.file-header').forEach(h => {
+        h.onclick = () => {
+            const div = document.getElementById(`file-${h.dataset.fileId}`);
+            const exp = h.dataset.expanded === 'true';
+            div.style.display = exp ? 'none' : 'block';
+            h.querySelector('.file-toggle').textContent = exp ? '▶' : '▼';
+            h.dataset.expanded = !exp;
+        };
     });
 
     document.querySelectorAll('.function-item').forEach(el => {
-        el.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const funcId = el.dataset.funcId;
-            const func = findFunctionById(funcId);
+        el.onclick = () => {
+            const func = allFunctionsMap.get(el.dataset.funcId);
             if (func) {
-                window.renderBidirectionalChain(func);
-                document.querySelectorAll('.function-item').forEach(item => item.classList.remove('active'));
-                el.classList.add('active');
-                highlightFileByFuncId(funcId);
+                selectedBranches = {};
+                renderBidirectionalChain(func);
+                highlightFileByFuncId(func.id);
             }
-        });
+        };
     });
 }
 
-function isFunctionBodyEmpty(func) {
-    if (func.calls && func.calls.length > 0) return false;
-    if (func.branches && func.branches.length > 0) return false;
-    if (func.signature) {
-        const sig = func.signature;
-        if (sig.includes('{}')) return true;
-        if (sig.includes('= Unit')) return true;
-        if (sig.includes('override') && sig.includes(') = ')) return true;
-        if (func.type === 'DATA_FLOW' && !sig.includes('{') && !sig.includes('return')) return true;
-    }
-    return false;
-}
-
-function findFunctionById(id) {
-    if (allFunctionsMap.has(id)) return allFunctionsMap.get(id);
-    for (const file of allFiles) {
-        for (const func of file.functions) {
-            if (func.id === id) return func;
-        }
-    }
-    return null;
-}
-
-function getFileNameFromFuncId(funcId) {
-    if (!funcId) return '';
-    const parts = funcId.split('.');
-    if (parts.length >= 2) return parts[0];
-    return '';
-}
-
-function highlightFileByFuncId(funcId) {
-    if (!funcId) return;
-    const fileName = getFileNameFromFuncId(funcId);
-    if (!fileName) return;
-
-    const fileHeaders = document.querySelectorAll('.file-header');
-    let targetHeader = null;
-    for (const header of fileHeaders) {
-        const fileTitle = header.querySelector('.file-name')?.innerText || '';
-        if (fileTitle.includes(fileName)) {
-            targetHeader = header;
-            break;
-        }
-    }
-
-    if (targetHeader) {
-        fileHeaders.forEach(h => h.classList.remove('highlighted'));
-        targetHeader.classList.add('highlighted');
-        targetHeader.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        setTimeout(() => { if (targetHeader) targetHeader.classList.remove('highlighted'); }, 2000);
-    }
-}
+// --- ЛОГИКА ЦЕПОЧКИ ---
 
 function buildFullPath(func, visited = new Set()) {
     const path = { upstream: [], current: func, downstream: [] };
-    if (visited.has(func.id)) return path;
+    if (!func || visited.has(func.id)) return path;
     visited.add(func.id);
 
-    if (func.inboundCalls && func.inboundCalls.length > 0) {
-        for (const inbound of func.inboundCalls) {
-            const parent = findFunctionById(inbound.functionId);
-            if (parent && !visited.has(parent.id)) {
-                path.upstream.push({ caller: parent, lineNumber: inbound.lineNumber, fileName: inbound.fileName });
-                const parentPath = buildFullPath(parent, visited);
-                path.upstream.push(...parentPath.upstream);
+    // Входящие
+    func.inboundCalls?.forEach(inbound => {
+        const parent = allFunctionsMap.get(inbound.functionId);
+        if (parent && !visited.has(parent.id)) {
+            path.upstream.push({ caller: parent });
+        }
+    });
+
+    function processElements(currentFunc, depth) {
+        if (!currentFunc) return;
+
+        // 1. Обработка обычных вызовов
+        currentFunc.calls?.forEach(c => {
+            const type = c.targetType || "INTERNAL";
+            if (activeFilters[type] !== false) {
+                const callee = allFunctionsMap.get(c.targetId);
+                path.downstream.push({ type: 'call', data: c, callee: callee, depth: depth });
+
+                // Рекурсия если НЕ свернуто
+                if (!window.isGlobalCollapsed && callee && !visited.has(callee.id)) {
+                    processElements(callee, depth + 1);
+                }
             }
-        }
-    }
+        });
 
-    function processCalls(calls, callerId) {
-        if (!calls) return;
-        for (const call of calls) {
-            if (call.nestedCalls) processCalls(call.nestedCalls, callerId);
-            const target = findFunctionById(call.targetId);
-            path.downstream.push({ callee: target, callData: call, callerId: callerId });
-        }
-    }
+        // 2. Обработка ветвлений
+        currentFunc.branches?.forEach((branch, bIndex) => {
+            const selectionKey = `${currentFunc.id}.${bIndex}`;
+            const selectedIdx = selectedBranches[selectionKey];
 
-    processCalls(func.calls, func.id);
+            if (selectedIdx !== undefined) {
+                const variant = branch.branches[selectedIdx];
+                path.downstream.push({ type: 'branch-header', data: branch, selectedVariant: variant, depth: depth });
 
-    if (func.listenerLinks) {
-        for (const listenerId of func.listenerLinks) {
-            const targetFunc = findFunctionById(listenerId);
-            if (targetFunc) {
-                path.downstream.push({
-                    callee: targetFunc,
-                    callData: { targetName: targetFunc.name, targetId: targetFunc.id, isListenerCall: true },
-                    callerId: func.id
+                variant.nestedCalls?.forEach(nc => {
+                    const nt = nc.targetType || "INTERNAL";
+                    if (activeFilters[nt] !== false) {
+                        const nCallee = allFunctionsMap.get(nc.targetId);
+                        path.downstream.push({ type: 'call', data: nc, callee: nCallee, depth: depth + 1 });
+
+                        if (!window.isGlobalCollapsed && nCallee && !visited.has(nCallee.id)) {
+                            processElements(nCallee, depth + 2);
+                        }
+                    }
                 });
+            } else {
+                path.downstream.push({ type: 'selector', data: branch, index: bIndex, funcId: currentFunc.id, depth: depth });
             }
-        }
+        });
     }
 
+    processElements(func, 0);
     return path;
 }
 
-function renderFullCard(func) {
-    const typeClass = getTypeClass(func.type);
-    const fileName = getFileNameFromFuncId(func.id);
-    return `
-        <div class="chain-card ${typeClass}" style="margin: 0 auto;">
-            ${fileName ? `<div class="card-filename">📁 ${escapeHtml(fileName)}</div>` : ''}
-            <div class="card-divider"></div>
-            <div class="card-name">${escapeHtml(func.name)}</div>
-            <div class="card-type">${getTypeLabel(func.type)}</div>
-            <div class="card-stats">
-                <span class="stat">📥 ${func.inboundCalls?.length || 0}</span>
-                <span class="stat">📤 ${func.calls?.length || 0}</span>
-            </div>
-            ${func.isEntryPoint ? '<div class="card-badge entry">Точка входа</div>' : ''}
-        </div>`;
-}
-
-function renderCompactCard(func, direction, callData = null, callerId = null) {
-    const typeClass = getTypeClass(func.type);
-    const lineInfo = callData?.lineNumber ? ` (line ${callData.lineNumber})` : '';
-    const fileName = getFileNameFromFuncId(func.id);
-    const clickableId = (callData?.isSystemCall || callData?.isListenerCall || !func.id) ? callerId : func.id;
-
-    return `
-        <div class="chain-card ${typeClass}" style="margin: 0 auto; cursor: pointer;" data-func-id="${escapeHtml(clickableId || '')}">
-            ${fileName ? `<div class="card-filename">📁 ${escapeHtml(fileName)}</div>` : ''}
-            <div class="card-divider"></div>
-            <div class="card-name">${escapeHtml(func.name)}${lineInfo}</div>
-            <div class="card-type">${getTypeLabel(func.type)}</div>
-            <div class="card-stats">
-                <span class="stat">📥 ${func.inboundCalls?.length || 0}</span>
-                <span class="stat">📤 ${func.calls?.length || 0}</span>
-            </div>
-            ${callData?.isConditional ? '<div class="card-badge conditional">условно</div>' : ''}
-            ${callData?.isSystemCall ? '<div class="card-badge system">System</div>' : ''}
-            ${callData?.isListenerCall ? '<div class="card-badge listener">🎧 Слушатель</div>' : ''}
-        </div>`;
-}
-
-function renderSystemCallCard(callData, callerId = null) {
-    const description = systemDescriptions[callData.targetName] || null;
-    return `
-        <div class="chain-card type-unknown" style="margin: 0 auto; cursor: pointer;" data-func-id="${escapeHtml(callerId || '')}">
-            <div class="card-name">${escapeHtml(callData.targetName)}</div>
-            <div class="card-type">System</div>
-            ${description ? `<div class="card-description" style="font-size:10px; color:#aaa; margin-top:5px;">${escapeHtml(description)}</div>` : ''}
-            ${callData?.isCallback ? '<div class="card-badge callback">Callback</div>' : ''}
-        </div>`;
+function selectBranch(funcId, branchIndex, variantIndex) {
+    selectedBranches[`${funcId}.${branchIndex}`] = variantIndex;
+    const func = allFunctionsMap.get(funcId);
+    if (func) renderBidirectionalChain(func);
 }
 
 function renderBidirectionalChain(func) {
-    const contentDiv = document.getElementById('content');
+    const container = document.getElementById('content');
     const path = buildFullPath(func);
-    let html = '<div class="chain-panel">';
-    html += `<div class="chain-header"><button class="back-button" onclick="window.location.reload()">← Назад</button><h2>🔗 ${escapeHtml(func.name)}</h2></div><div class="chain-container">`;
 
-    if (path.upstream.length > 0) {
-        html += '<div style="margin-bottom: 20px;"><div style="color: #88ff88; margin-bottom: 8px;">▲ ВЫЗЫВАЕТСЯ ИЗ:</div>';
-        path.upstream.forEach((item, i) => {
-            html += renderCompactCard(item.caller, 'upstream', null, item.caller.id);
-            html += '<div style="text-align: center; margin: 4px 0;">↓</div>';
-        });
-        html += '</div>';
-    }
+    let html = `
+        <div class="chain-panel">
+            <div class="chain-header">
+                <button class="back-button" onclick="window.location.reload()">← Назад</button>
+                <h2>🔗 Анализ: ${escapeHtml(func.name)}</h2>
+            </div>
+            <div class="chain-container">
+                ${path.upstream.reverse().map(v => renderCompactCard(v.caller) + arrow()).join('')}
 
-    html += `<div style="margin-bottom: 20px;"><div style="color: #ffaa44; margin-bottom: 8px;">📍 ТЕКУЩАЯ:</div>${renderFullCard(func)}</div>`;
+                <div class="chain-card ${getTypeClass(func.type)} active" data-func-id="${escapeHtml(func.id)}">
+                    <div class="card-filename">📁 ${getFileNameFromId(func.id)}</div>
+                    <div class="card-name">${func.isEntryPoint ? '🚀' : '🔧'} ${escapeHtml(func.name)}</div>
+                    <div class="card-type">${func.type} (ROOT)</div>
+                </div>
 
-    if (path.downstream.length > 0) {
-        html += '<div><div style="color: #88ff88; margin-bottom: 8px;">▼ ВЫЗЫВАЕТ:</div>';
-        path.downstream.forEach((item, i) => {
-            if (i > 0) html += '<div style="text-align: center; margin: 4px 0;">↓</div>';
-            if (item.callee) html += renderCompactCard(item.callee, 'downstream', item.callData, item.callerId);
-            else html += renderSystemCallCard(item.callData, item.callerId);
-        });
-        html += '</div>';
-    }
+                ${arrow()}
 
-    html += '</div></div>';
-    contentDiv.innerHTML = html;
+                ${path.downstream.map(item => {
+                    const indent = item.depth ? `style="margin-left: ${item.depth * 20}px;"` : '';
+                    if (item.type === 'call') {
+                        return `<div ${indent}>${(item.callee ? renderCompactCard(item.callee, item.data) : renderSystemCallCard(item.data))}</div>` + arrow();
+                    }
+                    if (item.type === 'selector') {
+                        return `<div ${indent}>${renderBranchSelector(item.funcId, item.data, item.index)}</div>` + arrow();
+                    }
+                    if (item.type === 'branch-header') {
+                        return `<div ${indent} style="color:#4caf50; font-size:10px; margin-bottom:8px;">↳ Выбрано: ${escapeHtml(item.selectedVariant.case)}</div>`;
+                    }
+                    return '';
+                }).join('')}
+            </div>
+        </div>`;
 
-    document.querySelectorAll('.chain-card[data-func-id]').forEach(card => {
-        card.addEventListener('click', () => {
-            const f = findFunctionById(card.dataset.funcId);
-            if (f) window.renderBidirectionalChain(f);
-        });
+    container.innerHTML = html;
+
+    container.querySelectorAll('.chain-card[data-func-id]').forEach(el => {
+        el.onclick = () => {
+            const f = allFunctionsMap.get(el.dataset.funcId);
+            if (f) {
+                selectedBranches = {};
+                renderBidirectionalChain(f);
+                highlightFileByFuncId(f.id);
+            }
+        };
     });
 }
 
-function getTypeClass(type) {
-    switch (type) {
-        case 'ACTION': return 'type-action';
-        case 'REQUEST': return 'type-request';
-        case 'DATA_FLOW': return 'type-dataflow';
-        default: return 'type-unknown';
-    }
+function renderBranchSelector(funcId, branch, bIndex) {
+    return `
+        <div class="branch-selector">
+            <div class="branch-title">❓ Условие: ${escapeHtml(branch.condition || branch.type)}</div>
+            <div class="branch-options">
+                ${branch.branches.map((v, vIdx) => `
+                    <div class="branch-option" onclick="selectBranch('${funcId}', ${bIndex}, ${vIdx})">
+                        <span class="branch-case">${escapeHtml(v.case || 'вариант')}</span>
+                        <span style="font-size:9px; opacity:0.5;">(${v.nestedCalls?.length || 0} вызовов)</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
 }
 
-function getTypeLabel(type) { return type || 'UNKNOWN'; }
+function arrow() { return '<div style="margin:8px 0; color:#333;">↓</div>'; }
 
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+function renderCompactCard(func, callData) {
+    const type = callData?.targetType || func.type || 'UNKNOWN';
+    const icon = callData ? getCallTypeIcon(type) : (func.isEntryPoint ? '🚀' : '🔧');
+    return `
+        <div class="chain-card call-type-${type.toLowerCase()}" data-func-id="${escapeHtml(func.id)}">
+            <div class="card-filename">📁 ${getFileNameFromId(func.id)}</div>
+            <div class="card-divider"></div>
+            <div class="card-name">${icon} ${escapeHtml(func.name)}</div>
+            <div class="card-type">${type}</div>
+        </div>`;
 }
 
-function getFunctionTooltip(func) {
-    const fileName = getFileNameFromFuncId(func.id);
-    let html = `<div style="font-weight: bold;">📁 ${escapeHtml(fileName)}</div><div>🔧 ${escapeHtml(func.name)}</div><div style="border-top: 1px solid #3a6a3a; margin: 4px 0;"></div>`;
-    html += `<div>📥 Входящие: ${func.inboundCalls?.length || 0} | 📤 Исходящие: ${func.calls?.length || 0}</div>`;
-    return html;
+function renderSystemCallCard(callData) {
+    const type = callData.targetType || 'ACTION';
+    const desc = systemDescriptions[callData.targetName];
+    return `
+        <div class="chain-card call-type-${type.toLowerCase()}">
+            <div class="card-name">${getCallTypeIcon(type)} ${escapeHtml(callData.targetName)}</div>
+            <div class="card-type">SYSTEM</div>
+            ${desc ? `<div class="card-description">${escapeHtml(desc)}</div>` : ''}
+        </div>`;
 }
 
+function getCallTypeIcon(type) {
+    const icons = { 'ASYNC': '⏱️', 'UI': '🎨', 'STORAGE': '💾', 'ANDROID': '📱', 'STATE': '🔄', 'ERROR': '⚠️', 'LOG': '📝', 'NETWORK': '🌐', 'ACTION': '⚡', 'REQUEST': '📡' };
+    return icons[type] || '🔧';
+}
+
+function getTypeClass(t) { return `type-${(t || 'unknown').toLowerCase()}`; }
+function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+function getFunctionTooltip(f) {
+    return `<div style="font-weight:bold;">📁 ${getFileNameFromId(f.id)}</div><div>🔧 ${escapeHtml(f.name)}</div><div style="border-top:1px solid #3a6a3a;margin:4px 0;"></div><div>📥 Входящие: ${f.inboundCalls?.length || 0}</div><div>📤 Исходящие: ${f.calls?.length || 0}</div>`;
+}
+
+// --- ЭКСПОРТ ---
 window.loadAndRender = loadAndRender;
-window.findFunctionById = findFunctionById;
 window.renderBidirectionalChain = renderBidirectionalChain;
+window.selectBranch = selectBranch;
+window.findFunctionById = findFunctionById;
+window.highlightFileByFuncId = highlightFileByFuncId;
+window.applySearch = applySearch;
+window.toggleFilter = toggleFilter;
+window.toggleGlobalCollapse = toggleGlobalCollapse;
+window.allFunctionsMap = allFunctionsMap;
