@@ -9,8 +9,8 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.2.1"
 }
 
-group = "com.example.codemap"
-version = "1.2.0"
+group = "io.github.Roman1233219"
+version = "1.2.1"
 
 java {
     toolchain {
@@ -51,7 +51,7 @@ dependencies {
 
 intellijPlatform {
     pluginConfiguration {
-        id.set("com.example.codemap")
+        id.set("io.github.Roman1233219.CodeMap")
         name.set("CodeMap")
         version.set(project.version.toString())
         ideaVersion {
@@ -59,8 +59,8 @@ intellijPlatform {
             untilBuild.set(null as String?)
         }
         vendor {
-            name.set("Example Vendor")
-            email.set("support@example.com")
+            name.set("Roman1233219")
+            email.set("codemap.support@gmail.com")
         }
     }
 }

@@ -1,9 +1,29 @@
 <idea-plugin>
-    <id>com.example.codemap</id>
+    <id>io.github.Roman1233219.CodeMap</id>
     <name>CodeMap</name>
-    <vendor email="support@example.com">Example Vendor</vendor>
+    <vendor email="codemap.support@gmail.com" url="https://github.com/Roman1233219/CodeMap">Roman1233219</vendor>
 
-    <description>A smart code map plugin for Android Studio compatible with K2.</description>
+    <description><![CDATA[CodeMap is a powerful visualization tool for Android Studio that helps developers understand complex codebases by showing function call chains. It builds interactive graphs that illustrate "who calls whom" in your Kotlin project.
+
+    <h3>Key Features:</h3>
+    <ul>
+        <li><b>Call Chain Visualization</b>: Trace logic from entry points (like onCreate) to the deepest levels of your code.</li>
+        <li><b>Smart Categorization</b>: Different colors for UI, Network, Storage, Async, and System calls.</li>
+        <li><b>Interactive Branching</b>: Choose which path of 'if/when' conditions to explore in the graph.</li>
+        <li><b>Architecture Audit</b>: Automatically detect violations in Clean Architecture, MVVM, and SRP (Single Responsibility Principle).</li>
+        <li><b>Navigation</b>: One-click jump from the graph node directly to the source code line.</li>
+        <li><b>K2 Compatible</b>: Fully supports the new IntelliJ/Kotlin K2 mode.</li>
+    </ul>
+
+    <h3>How to use:</h3>
+    <ol>
+        <li>Click "🚀 Analyze Project" to build the latest map.</li>
+        <li>Select a file and function in the side panel.</li>
+        <li>Explore the interactive chain and use filters to hide system logs or Android internal calls.</li>
+    </ol>
+
+    <p>CodeMap is essential for architectural reviews, onboarding new developers, and debugging complex data flows.</p>
+    ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>
@@ -12,9 +32,9 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="CodeMap"
-                    anchor="left"
-                    factoryClass="com.example.codemap.ui.CodeMapToolWindowFactory"
-                    icon="/icons/spider.svg" />
+            anchor="left"
+            factoryClass="com.example.codemap.ui.CodeMapToolWindowFactory"
+            icon="/icons/spider.svg" />
     </extensions>
 
     <extensions defaultExtensionNs="org.jetbrains.kotlin">
