@@ -10,14 +10,6 @@
     <depends>com.intellij.modules.androidstudio</depends>
     <depends>org.jetbrains.kotlin</depends>
 
-    <actions>
-        <action id="com.example.codemap.HelloAction"
-                class="com.example.codemap.HelloAction"
-                text="Hello CodeMap">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
-    </actions>
-
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="CodeMap"
                     anchor="left"
