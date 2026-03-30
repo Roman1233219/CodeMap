@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.example.codemap"
-version = "1.1.0"
+version = "1.2.0"
 
 java {
     toolchain {
@@ -53,7 +53,7 @@ intellijPlatform {
     pluginConfiguration {
         id.set("com.example.codemap")
         name.set("CodeMap")
-        version.set("1.0.0")
+        version.set(project.version.toString())
         ideaVersion {
             sinceBuild.set("253")
             untilBuild.set(null as String?)

@@ -331,9 +331,37 @@
             font-size: 12px;
         }
 
+        .header-left {
+            display: flex;
+            align-items: center;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .btn-instruction {
+            background: #1a3a1a;
+            color: #00ff00;
+            border: 1px solid #2a6a2a;
+            padding: 6px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: monospace;
+            font-size: 11px;
+            transition: all 0.2s;
+        }
+
+        .btn-instruction:hover {
+            background: #2a6a2a;
+            color: #fff;
+        }
+
         .legend-items {
             display: flex;
-            gap: 20px;
+            gap: 15px;
         }
 
         .legend-item {
@@ -355,12 +383,12 @@
 
         .legend-label {
             color: #ccc;
-            font-size: 11px;
+            font-size: 10px;
         }
 
         /* Поиск */
         .search-container {
-            flex: 0 0 300px;
+            width: 250px;
         }
 
         #globalSearch {
@@ -371,7 +399,7 @@
             padding: 6px 12px;
             border-radius: 4px;
             font-family: monospace;
-            font-size: 12px;
+            font-size: 11px;
         }
 
         #globalSearch:focus {
@@ -755,26 +783,31 @@
         <div class="main-content">
             <!-- Полоска с легендой и поиском -->
             <div class="legend-bar">
-                <div class="legend-items">
-                    <div class="legend-item">
-                        <div class="legend-color action"></div>
-                        <span class="legend-label">ACTION</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color request"></div>
-                        <span class="legend-label">REQUEST</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color dataflow"></div>
-                        <span class="legend-label">DATA_FLOW</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color unknown"></div>
-                        <span class="legend-label">UNKNOWN</span>
-                    </div>
+                <div class="header-left">
+                    <button class="btn-instruction" id="openInstructions">❓ Инструкция</button>
                 </div>
-                <div class="search-container">
-                    <input type="text" id="globalSearch" placeholder="🔍 Поиск функций (Ctrl+F)..." autocomplete="off">
+                <div class="header-right">
+                    <div class="legend-items">
+                        <div class="legend-item">
+                            <div class="legend-color action"></div>
+                            <span class="legend-label">ACTION</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color request"></div>
+                            <span class="legend-label">REQUEST</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color dataflow"></div>
+                            <span class="legend-label">DATA_FLOW</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color unknown"></div>
+                            <span class="legend-label">UNKNOWN</span>
+                        </div>
+                    </div>
+                    <div class="search-container">
+                        <input type="text" id="globalSearch" placeholder="🔍 Поиск функций (Ctrl+F)..." autocomplete="off">
+                    </div>
                 </div>
             </div>
 
@@ -815,6 +848,14 @@
         window.androidDetector = null;
 
         window.addEventListener('DOMContentLoaded', () => {
+            // Обработка кнопки инструкции
+            const instructBtn = document.getElementById('openInstructions');
+            instructBtn.addEventListener('click', () => {
+                if (window.showInstructions) {
+                    window.showInstructions();
+                }
+            });
+
             // Обработка вкладок
             const tabButtons = document.querySelectorAll('.tab-button');
             const fileContainer = document.getElementById('fileList');

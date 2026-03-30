@@ -1,0 +1,102 @@
+{
+  "patterns": [
+    {
+      "name": "MVVM",
+      "rules": [
+        {
+          "type": "class_suffix",
+          "suffix": "ViewModel",
+          "mustNotImport": ["android.view", "android.widget", "com.google.android.material", "android.content.Context"],
+          "description": "ViewModels must not contain UI references or Context."
+        },
+        {
+          "type": "class_suffix",
+          "suffix": "Activity",
+          "mustHaveReferenceTo": "ViewModel",
+          "description": "Activities should be linked to a ViewModel."
+        }
+      ]
+    },
+    {
+      "name": "MVI",
+      "rules": [
+        {
+          "type": "interface_presence",
+          "names": ["ViewState", "ViewIntent", "ViewEffect"],
+          "description": "MVI should have defined State, Intent and Effect interfaces."
+        },
+        {
+          "type": "class_suffix",
+          "suffix": "Reducer",
+          "description": "MVI usually involves a Reducer to handle state transitions."
+        }
+      ]
+    },
+    {
+      "name": "MVP",
+      "rules": [
+        {
+          "type": "class_suffix",
+          "suffix": "Presenter",
+          "mustNotImport": ["android.view", "android.widget"],
+          "description": "Presenters should be independent of Android UI."
+        },
+        {
+          "type": "interface_presence",
+          "names": ["View"],
+          "description": "MVP requires a View interface for the Presenter to communicate with."
+        }
+      ]
+    },
+    {
+      "name": "MVC",
+      "rules": [
+        {
+          "type": "class_suffix",
+          "suffix": "Controller",
+          "description": "Classic MVC should have a Controller handling input."
+        },
+        {
+          "type": "class_suffix",
+          "suffix": "Activity",
+          "description": "In Android MVC, Activity often acts as the Controller."
+        }
+      ]
+    },
+    {
+      "name": "VIPER",
+      "rules": [
+        {
+          "type": "class_suffix",
+          "suffix": "Interactor",
+          "description": "VIPER Interactor: Pure business logic for a specific use case."
+        },
+        {
+          "type": "class_suffix",
+          "suffix": "Router",
+          "description": "VIPER Router: Handles navigation between screens."
+        },
+        {
+          "type": "class_suffix",
+          "suffix": "Entity",
+          "description": "VIPER Entity: Plain data objects used by the Interactor."
+        }
+      ]
+    },
+    {
+      "name": "Redux",
+      "rules": [
+        {
+          "type": "class_suffix",
+          "suffix": "Store",
+          "description": "Redux Store: Single source of truth for the state."
+        },
+        {
+          "type": "class_suffix",
+          "suffix": "Action",
+          "description": "Redux Actions: Descriptors of state changes."
+        }
+      ]
+    }
+  ]
+}

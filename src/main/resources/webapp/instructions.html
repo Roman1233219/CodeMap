@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+            position: sticky;
+            top: 0;
+            background: #1e1e1e;
+            z-index: 100;
+        }
+        .btn {
+            background-color: #3c3c3c;
+            color: white;
+            border: 1px solid #555;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .btn:hover { background-color: #4c4c4c; border-color: #00ff00; }
+
+        h1 { color: #569cd6; border-bottom: 1px solid #333; padding-bottom: 5px; }
+        h2 { color: #4ec9b0; margin-top: 30px; border-left: 4px solid #4ec9b0; padding-left: 15px; }
+        h3 { color: #ce9178; margin-top: 20px; }
+
+        .card { background-color: #252526; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #333; }
+        .warning-card { border-left: 4px solid #f48771; background-color: #2d2020; }
+
+        .legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .legend-item { display: flex; align-items: flex-start; gap: 15px; background: #2d2d30; padding: 12px; border-radius: 6px; }
+        .color-box { width: 30px; height: 30px; border-radius: 4px; flex-shrink: 0; }
+
+        /* Цвета узлов */
+        .color-action { background: #2e7d32; }
+        .color-request { background: #00008b; }
+        .color-dataflow { background: #0288d1; }
+        .color-async { background: #e65100; }
+        .color-ui { background: #1b5e20; border: 1px solid #4caf50; }
+        .color-network { background: #0d47a1; }
+        .color-storage { background: #0d47a1; border: 1px solid #1565c0; }
+        .color-state { background: #006064; }
+        .color-android { background: #b71c1c; }
+        .color-internal { background: #4a148c; }
+        .color-log { background: #37474f; }
+        .color-error { background: #f57f17; }
+        .color-unknown { background: #8b0000; }
+
+        .step { margin-bottom: 15px; padding-left: 20px; position: relative; }
+        .step::before { content: "➜"; position: absolute; left: 0; color: #00ff00; }
+
+        code { background: #37373d; padding: 2px 6px; border-radius: 4px; font-family: monospace; color: #d7ba7d; }
+        .footer { margin-top: 50px; text-align: center; color: #666; font-size: 12px; border-top: 1px solid #333; padding-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📖 Инструкция CodeMap</h1>
+            <button class="btn" onclick="window.backToMap()">⬅ Вернуться к карте</button>
+        </div>
+
+        <section class="card">
+            <h2>🎨 Цветовая индикация (12+ категорий)</h2>
+            <p>Цвет функции определяется автоматически на основе её типа и поведения в коде:</p>
+            <div class="legend-grid">
+                <div class="legend-item">
+                    <div class="color-box color-action"></div>
+                    <div><strong>ACTION</strong>: Точки входа (onCreate, onStart) и команды.</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-request"></div>
+                    <div><strong>REQUEST</strong>: Функции, возвращающие данные в точку вызова.</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-dataflow"></div>
+                    <div><strong>DATA_FLOW</strong>: Потоки данных (без прямого возврата результата).</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-async"></div>
+                    <div><strong>ASYNC</strong>: Асинхронные вызовы (Coroutines, launch, delay).</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-ui"></div>
+                    <div><strong>UI</strong>: Работа с интерфейсом (setText, visibility, animate).</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-network"></div>
+                    <div><strong>NETWORK</strong>: Сетевые запросы (API, fetch, execute).</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-storage"></div>
+                    <div><strong>STORAGE</strong>: Базы данных и настройки (Room, SharedPreferences).</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-state"></div>
+                    <div><strong>STATE</strong>: Реактивные потоки (Flow, LiveData, emit, observe).</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-android"></div>
+                    <div><strong>ANDROID</strong>: Системные вызовы (Intents, Services, Broadcasts).</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-internal"></div>
+                    <div><strong>INTERNAL</strong>: Внутренние методы вашего проекта.</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-log"></div>
+                    <div><strong>LOG</strong>: Логирование (Log.d, println).</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-error"></div>
+                    <div><strong>ERROR</strong>: Обработка ошибок (try-catch, runCatching).</div>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box color-unknown"></div>
+                    <div><strong>UNKNOWN</strong>: Неопознанные вызовы.</div>
+                </div>
+            </div>
+            <p style="margin-top: 15px;">
+                💡 <strong>Системные вызовы:</strong> В корне проекта находится файл <code>system_functions.json</code>. Вы можете редактировать его, добавляя свои описания и цвета для функций любых библиотек.
+            </p>
+        </section>
+
+        <section class="card">
+            <h2>🔎 Навигация и интерактив</h2>
+            <div class="step"><strong>Ветвление (Branching)</strong>: Если функция содержит <code>if-else</code> или <code>when</code>, плагин предложит вам выбрать нужную ветку (True/False/Case) для продолжения цепочки.</div>
+            <div class="step"><strong>Интенты и Переходы</strong>: Плагин отслеживает неявные связи. Если вы запускаете Activity через Intent, это отобразится в графе.</div>
+            <div class="step"><strong>Фильтры</strong>: Используйте панель фильтров сверху, чтобы скрыть лишние типы (например, LOG или ANDROID) и не загромождать карту.</div>
+            <div class="step"><strong>Умный поиск</strong>: Нажмите <code>Ctrl+F</code>, чтобы быстро найти любую функцию по названию.</div>
+        </section>
+
+        <section class="card">
+            <h2>🏗 Проверка архитектуры</h2>
+            <div class="step"><strong>Smart Detection</strong>: Плагин определяет слой (Data, Domain, Presentation) не по именам папок, а по реальным вызовам внутри файлов.</div>
+            <div class="step"><strong>Контроль SRP</strong>: Если файл смешивает логику UI и Данных, вы получите предупреждение с перечнем конфликтующих функций.</div>
+            <div class="step"><strong>Паттерны</strong>: Проверка MVVM/MVI/MVP на наличие запрещенных импортов (например, UI-библиотеки во ViewModel) и связей.</div>
+        </section>
+
+        <section class="card warning-card">
+            <h2>⚠️ Внимание: Удаление плагина</h2>
+            <p>При деинсталляции плагина CodeMap из Android Studio его служебные файлы в проекте <strong>не удаляются автоматически</strong>. Для полной очистки проекта вам необходимо вручную удалить следующие объекты из корня вашего проекта:</p>
+            <ul>
+                <li>Папку <code>.codemap/</code> (содержит кэш анализа PSI.json)</li>
+                <li>Файл <code>system_functions.json</code> (ваши настройки системных вызовов)</li>
+            </ul>
+        </section>
+
+        <div class="footer">
+            CodeMap Analyzer &copy; 2026
+        </div>
+    </div>
+
+    <!-- DATA_INJECTION_MARKER -->
+    <script>
+        if (!window.backToMap) {
+            window.backToMap = function() { console.log("Back to map requested"); };
+        }
+    </script>
+</body>
+</html>

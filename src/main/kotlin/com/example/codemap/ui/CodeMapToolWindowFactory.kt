@@ -1,6 +1,9 @@
 package com.example.codemap.ui
 
 import com.example.codemap.CodeMap.data.CodeMapCore
+import com.example.codemap.CodeMap.data.ArchitectureChecker
+import com.example.codemap.CodeMap.data.PatternChecker
+import com.google.gson.Gson
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
@@ -24,10 +27,16 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
     private lateinit var core: CodeMapCore
     private lateinit var browser: JBCefBrowser
     private lateinit var jsQuery: JBCefJSQuery
+    private lateinit var backQuery: JBCefJSQuery
+    private lateinit var downloadQuery: JBCefJSQuery
+    private lateinit var instructionQuery: JBCefJSQuery
     private lateinit var scanBtn: JButton
     private lateinit var editSysBtn: JButton
     private lateinit var exportBtn: JButton
     private lateinit var progressBar: JProgressBar
+    private lateinit var archComboBox: JComboBox<String>
+    private lateinit var patternComboBox: JComboBox<String>
+    private lateinit var checkArchBtn: JButton
     private var currentProject: Project? = null
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -39,42 +48,73 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
         val mainPanel = JBPanel<JBPanel<*>>(BorderLayout())
         val controls = JPanel(GridBagLayout())
         val gbc = GridBagConstraints().apply {
-            insets = Insets(5, 5, 5, 5)
+            insets = Insets(2, 2, 2, 2)
             fill = GridBagConstraints.HORIZONTAL
-            weightx = 1.0
+            weighty = 0.0
         }
 
         scanBtn = JButton("🚀 Анализировать проект")
         progressBar = JProgressBar(0, 100).apply { isStringPainted = true }
         editSysBtn = JButton("📝 Системные функции")
         exportBtn = JButton("📤 Экспорт PSI.json")
+        
+        val architectures = arrayOf("Архитектура", "Clean Architecture", "Layered", "Modular", "Onion", "Hexagonal")
+        archComboBox = JComboBox(architectures)
+        
+        val patterns = arrayOf("Паттерны", "MVVM", "MVI", "MVP", "MVC", "VIPER", "Redux")
+        patternComboBox = JComboBox(patterns)
+        
+        checkArchBtn = JButton("Проверить")
 
-        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2
+        gbc.gridy = 0
+        
+        gbc.gridx = 0; gbc.weightx = 0.0
         controls.add(scanBtn, gbc)
-        gbc.gridy = 1
+        
+        gbc.gridx = 1; gbc.weightx = 1.0
         controls.add(progressBar, gbc)
-        gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0.5
+        
+        gbc.gridx = 2; gbc.weightx = 0.0
         controls.add(editSysBtn, gbc)
-        gbc.gridx = 1
+        
+        gbc.gridx = 3; gbc.weightx = 0.0
         controls.add(exportBtn, gbc)
+        
+        gbc.gridx = 4; gbc.weightx = 0.0
+        controls.add(archComboBox, gbc)
+        
+        gbc.gridx = 5; gbc.weightx = 0.0
+        controls.add(patternComboBox, gbc)
+        
+        gbc.gridx = 6; gbc.weightx = 0.0
+        controls.add(checkArchBtn, gbc)
 
         mainPanel.add(controls, BorderLayout.NORTH)
 
-        // --- Инициализация браузера и JS Query ---
+        // --- Инициализация браузера и JS Queries ---
         browser = JBCefBrowser()
-        // Используем JBCefBrowserBase для избежания Deprecation
         jsQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
-        
-        // Обработчик прыжка в код
         jsQuery.addHandler { arg ->
             val parts = arg.split("|")
             if (parts.size >= 2) {
-                val filePath = parts[0]
-                val line = parts[1].toIntOrNull() ?: 0
-                jumpToCode(project, filePath, line)
+                jumpToCode(project, parts[0], parts[1].toIntOrNull() ?: 0)
             }
             null
         }
+
+        backQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        backQuery.addHandler { loadVisualization(); null }
+
+        downloadQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        downloadQuery.addHandler { arg ->
+            val desktop = File(System.getProperty("user.home"), "Desktop/Architecture_Report.txt")
+            desktop.writeText(arg)
+            JOptionPane.showMessageDialog(null, "Отчет сохранен на Рабочий стол!")
+            null
+        }
+
+        instructionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        instructionQuery.addHandler { showInstructionsHtml(); null }
 
         mainPanel.add(browser.component, BorderLayout.CENTER)
 
@@ -108,11 +148,65 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
                 JOptionPane.showMessageDialog(null, "Экспортировано на Рабочий стол!")
             }
         }
+        
+        checkArchBtn.addActionListener {
+            val selectedArch = archComboBox.selectedItem as String
+            val selectedPattern = patternComboBox.selectedItem as String
+            
+            val archChecker = ArchitectureChecker(project)
+            val patternChecker = PatternChecker(project)
+            
+            val reportData = mutableListOf<Map<String, Any>>()
+            
+            if (selectedArch != "Архитектура") {
+                val res = archChecker.check(selectedArch)
+                reportData.add(mapOf("title" to "Архитектура: $selectedArch", "isOk" to res.isOk, "message" to res.message, "details" to res.details))
+            }
+            
+            if (selectedPattern != "Паттерны") {
+                val res = patternChecker.check(selectedPattern)
+                reportData.add(mapOf("title" to "Паттерн: $selectedPattern", "isOk" to res.isOk, "message" to res.message, "details" to res.details))
+            }
+            
+            if (reportData.isEmpty()) {
+                JOptionPane.showMessageDialog(null, "Выберите архитектуру или паттерн для проверки")
+            } else {
+                showHtmlReport(reportData)
+            }
+        }
 
         val content = ContentFactory.getInstance().createContent(mainPanel, "", false)
         toolWindow.contentManager.addContent(content)
         
         loadVisualization()
+    }
+
+    private fun showHtmlReport(data: List<Map<String, Any>>) {
+        val htmlTemplate = javaClass.getResourceAsStream("/webapp/architecture.html")?.bufferedReader()?.readText() ?: "<h1>Error loading template</h1>"
+        val json = Gson().toJson(mapOf("results" to data))
+        val finalHtml = htmlTemplate.replace(
+            "<!-- DATA_INJECTION_MARKER -->",
+            """
+            <script>
+                window.REPORT_DATA = $json;
+                window.backToMap = function() { ${backQuery.inject("")} };
+                window.downloadReport = function() { 
+                    const text = document.getElementById('content').innerText;
+                    ${downloadQuery.inject("text")} 
+                };
+            </script>
+            """.trimIndent()
+        )
+        browser.loadHTML(finalHtml)
+    }
+
+    private fun showInstructionsHtml() {
+        val htmlTemplate = javaClass.getResourceAsStream("/webapp/instructions.html")?.bufferedReader()?.readText() ?: "<h1>Error loading template</h1>"
+        val finalHtml = htmlTemplate.replace(
+            "<!-- DATA_INJECTION_MARKER -->",
+            "<script>window.backToMap = function() { ${backQuery.inject("")} };</script>"
+        )
+        browser.loadHTML(finalHtml)
     }
 
     private fun jumpToCode(project: Project, filePath: String, line: Int) {
@@ -150,8 +244,6 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
         val renderJs = javaClass.getResourceAsStream("/webapp/render.js")?.bufferedReader()?.readText() ?: ""
         val detectorJs = javaClass.getResourceAsStream("/webapp/android-detector.js")?.bufferedReader()?.readText() ?: ""
 
-        // Инъектируем функцию-мост для вызова из JS
-        // Используем маркер для безопасной инъекции данных
         val finalHtml = htmlResource
             .replace("<script src=\"render.js\"></script>", "<script>$renderJs</script>")
             .replace("<script src=\"android-detector.js\"></script>", "<script>$detectorJs</script>")
@@ -163,6 +255,9 @@ class CodeMapToolWindowFactory : ToolWindowFactory {
                     window.SYSTEM_FUNCTIONS = $systemJson;
                     window.jumpToCode = function(path, line) {
                         ${jsQuery.inject("path + '|' + line")}
+                    };
+                    window.showInstructions = function() {
+                        ${instructionQuery.inject("")}
                     };
                 </script>
                 """.trimIndent()
