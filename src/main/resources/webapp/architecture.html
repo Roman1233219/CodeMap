@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+        .btn {
+            background-color: #3c3c3c;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-left: 10px;
+        }
+        .btn:hover { background-color: #4c4c4c; }
+        .btn-primary { background-color: #0e639c; }
+        .btn-primary:hover { background-color: #1177bb; }
+        .card { background-color: #252526; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .section-title { color: #569cd6; font-size: 18px; margin-top: 0; border-left: 4px solid #569cd6; padding-left: 10px; }
+        .status { font-weight: bold; margin-bottom: 10px; }
+        .status.ok { color: #4ec9b0; }
+        .status.error { color: #f48771; }
+        .violation { background-color: #37373d; border-left: 4px solid #f48771; padding: 10px; margin: 5px 0; font-family: monospace; font-size: 12px; }
+        .footer { margin-top: 40px; font-size: 11px; color: #666; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Отчет о проверке кода</h2>
+            <div>
+                <button class="btn" onclick="window.backToMap()">⬅ К карте</button>
+                <button class="btn btn-primary" onclick="window.downloadReport()">📥 Скачать отчет</button>
+            </div>
+        </div>
+
+        <div id="content">
+            <!-- Сюда будут вставлены результаты -->
+        </div>
+
+        <div class="footer">
+            CodeMap Analyzer &copy; 2026
+        </div>
+    </div>
+
+    <!-- DATA_INJECTION_MARKER -->
+
+    <script>
+        function renderResults(data) {
+            const container = document.getElementById('content');
+            let html = '';
+
+            if (!data || !data.results || data.results.length === 0) {
+                container.innerHTML = '<div class="card">Нет данных для отображения</div>';
+                return;
+            }
+
+            data.results.forEach(res => {
+                html += `
+                    <div class="card">
+                        <div class="section-title">${res.title}</div>
+                        <div class="status ${res.isOk ? 'ok' : 'error'}">${res.message}</div>
+                        ${res.details.map(d => `<div class="violation">${d}</div>`).join('')}
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        // Данные инъектируются через замену маркера в Kotlin
+        if (window.REPORT_DATA) {
+            renderResults(window.REPORT_DATA);
+        } else {
+            document.getElementById('content').innerHTML = '<div class="card">Ошибка: Данные отчета не загружены.</div>';
+        }
+    </script>
+</body>
+</html>

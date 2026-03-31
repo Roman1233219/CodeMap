@@ -1,0 +1,95 @@
+{
+  "architectures": [
+    {
+      "name": "Clean Architecture",
+      "layers": [
+        {
+          "name": "domain",
+          "mustNotDependOn": ["data", "presentation", "ui", "framework", "remote", "cache"],
+          "description": "Domain layer (Business Logic) must be pure and independent of implementation details."
+        },
+        {
+          "name": "data",
+          "mustDependOn": ["domain"],
+          "mustNotDependOn": ["presentation", "ui"],
+          "description": "Data layer implements Domain repositories and handles data sources."
+        },
+        {
+          "name": "presentation",
+          "mustDependOn": ["domain"],
+          "description": "Presentation layer handles UI logic and depends only on Domain."
+        }
+      ]
+    },
+    {
+      "name": "Layered",
+      "layers": [
+        {
+          "name": "ui",
+          "mustDependOn": ["domain"],
+          "description": "UI layer depends on Domain/Business layer."
+        },
+        {
+          "name": "domain",
+          "mustDependOn": ["data"],
+          "description": "Domain layer depends on Data layer in classic 3-tier."
+        },
+        {
+          "name": "data",
+          "mustNotDependOn": ["ui", "domain"],
+          "description": "Data layer should be at the bottom of the stack."
+        }
+      ]
+    },
+    {
+      "name": "Modular",
+      "layers": [
+        {
+          "name": "feature",
+          "mustNotDependOn": ["feature"],
+          "description": "Feature modules should not depend on each other to maintain decoupling."
+        },
+        {
+          "name": "core",
+          "mustNotDependOn": ["feature"],
+          "description": "Core/Library modules must not depend on high-level feature modules."
+        }
+      ]
+    },
+    {
+      "name": "Onion",
+      "layers": [
+        {
+          "name": "core",
+          "mustNotDependOn": ["domain", "infra", "api"],
+          "description": "The center of the onion: Core Domain Models."
+        },
+        {
+          "name": "domain_services",
+          "mustDependOn": ["core"],
+          "description": "Domain services depend on core models."
+        },
+        {
+          "name": "infrastructure",
+          "mustDependOn": ["core", "domain_services"],
+          "description": "Outer layer: Database, File System, Network."
+        }
+      ]
+    },
+    {
+      "name": "Hexagonal",
+      "layers": [
+        {
+          "name": "domain",
+          "mustNotDependOn": ["adapter"],
+          "description": "Hexagon center: Core business logic and Ports."
+        },
+        {
+          "name": "adapter",
+          "mustDependOn": ["domain"],
+          "description": "Adapters (Infrastructure/UI) connect to the Domain via Ports."
+        }
+      ]
+    }
+  ]
+}
