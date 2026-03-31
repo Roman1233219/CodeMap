@@ -15,7 +15,8 @@
 ## Установка
 Установите из [JetBrains Marketplace](ссылка) или через IDE: Settings → Plugins → Marketplace → поиск "CodeMap"
 
-## Использование
+
+
 1. Откройте Kotlin-файл
 2. Кликните правой кнопкой на функции → "Show CodeMap"
 3. Исследуйте граф вызовов
