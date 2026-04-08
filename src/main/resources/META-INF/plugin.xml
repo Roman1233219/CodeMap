@@ -15,6 +15,9 @@
         <li><b>K2 Compatible</b>: Fully supports the new IntelliJ/Kotlin K2 mode.</li>
     </ul>
 
+    <h3>Requirements:</h3>
+    <p>To ensure the interactive visualization works correctly, CodeMap requires a <b>JetBrains Runtime (JBR)</b> or a JDK with <b>JCEF (Java Chromium Embedded Framework)</b> support (version 21 or higher). If the tool window appears empty, please switch your IDE Runtime to the bundled JBR (Shift+Shift -> 'Choose IDE Runtime').</p>
+
     <h3>How to use:</h3>
     <ol>
         <li>Click "🚀 Analyze Project" to build the latest map.</li>

@@ -327,13 +327,14 @@
             background: #0f0f0f;
             border-bottom: 1px solid #2a6a2a;
             padding: 8px 16px;
-            margin-bottom: 8px;
+            margin-bottom: 20px;
             font-size: 12px;
         }
 
         .header-left {
             display: flex;
             align-items: center;
+            gap: 12px;
         }
 
         .header-right {
@@ -357,6 +358,53 @@
         .btn-instruction:hover {
             background: #2a6a2a;
             color: #fff;
+        }
+
+        /* Выпадающий список фильтров */
+        .dropdown-filters {
+            position: relative;
+            display: inline-block;
+        }
+
+        .filter-dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: #0f0f0f;
+            min-width: 150px;
+            box-shadow: 0px 8px 16px rgba(0,0,0,0.6);
+            z-index: 1001;
+            border: 1px solid #2a6a2a;
+            border-radius: 6px;
+            padding: 12px;
+            top: calc(100% + 5px);
+            left: 0;
+        }
+
+        .dropdown-filters:hover .filter-dropdown-content {
+            display: block;
+        }
+
+        .filter-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            color: #888;
+            font-size: 11px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .filter-item:hover {
+            color: #00ff00;
+        }
+
+        .filter-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .filter-item input {
+            cursor: pointer;
         }
 
         .legend-items {
@@ -407,42 +455,10 @@
             outline: none;
         }
 
-        /* Фильтр-бар */
-        .filter-bar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: #0f0f0f;
-            border-bottom: 1px solid #2a2a2a;
-            padding: 8px 16px;
-            margin-bottom: 20px;
-            gap: 10px;
-        }
-
-        .filter-options {
-            display: flex;
-            flex: 1;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .filter-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 11px;
-            color: #888;
-            cursor: pointer;
-        }
-
-        .filter-item input {
-            cursor: pointer;
-        }
-
         .collapse-toggle {
             font-size: 18px;
             cursor: pointer;
-            padding: 0 10px;
+            padding: 0 5px;
             color: #4caf50;
             transition: transform 0.2s;
         }
@@ -785,8 +801,24 @@
             <div class="legend-bar">
                 <div class="header-left">
                     <button class="btn-instruction" id="openInstructions">❓ Инструкция</button>
+                    <div class="dropdown-filters">
+                        <button class="btn-instruction">⚙️ Фильтры</button>
+                        <div class="filter-dropdown-content" id="filterOptions">
+                            <label class="filter-item"><input type="checkbox" data-type="LOG" checked> LOG</label>
+                            <label class="filter-item"><input type="checkbox" data-type="UI" checked> UI</label>
+                            <label class="filter-item"><input type="checkbox" data-type="ASYNC" checked> ASYNC</label>
+                            <label class="filter-item"><input type="checkbox" data-type="STORAGE" checked> STORAGE</label>
+                            <label class="filter-item"><input type="checkbox" data-type="NETWORK" checked> NETWORK</label>
+                            <label class="filter-item"><input type="checkbox" data-type="ANDROID" checked> ANDROID</label>
+                            <label class="filter-item"><input type="checkbox" data-type="STATE" checked> STATE</label>
+                            <label class="filter-item"><input type="checkbox" data-type="ERROR" checked> ERROR</label>
+                            <label class="filter-item"><input type="checkbox" data-type="INTERNAL" checked> INTERNAL</label>
+                            <label class="filter-item"><input type="checkbox" data-type="SYSTEM" checked> SYSTEM</label>
+                        </div>
+                    </div>
                 </div>
                 <div class="header-right">
+                    <div class="collapse-toggle" id="globalCollapse" title="Свернуть/Развернуть всё">📂</div>
                     <div class="legend-items">
                         <div class="legend-item">
                             <div class="legend-color action"></div>
@@ -809,23 +841,6 @@
                         <input type="text" id="globalSearch" placeholder="🔍 Поиск функций (Ctrl+F)..." autocomplete="off">
                     </div>
                 </div>
-            </div>
-
-            <!-- Фильтр-бар -->
-            <div class="filter-bar">
-                <div class="filter-options" id="filterOptions">
-                    <label class="filter-item"><input type="checkbox" data-type="LOG" checked> LOG</label>
-                    <label class="filter-item"><input type="checkbox" data-type="UI" checked> UI</label>
-                    <label class="filter-item"><input type="checkbox" data-type="ASYNC" checked> ASYNC</label>
-                    <label class="filter-item"><input type="checkbox" data-type="STORAGE" checked> STORAGE</label>
-                    <label class="filter-item"><input type="checkbox" data-type="NETWORK" checked> NETWORK</label>
-                    <label class="filter-item"><input type="checkbox" data-type="ANDROID" checked> ANDROID</label>
-                    <label class="filter-item"><input type="checkbox" data-type="STATE" checked> STATE</label>
-                    <label class="filter-item"><input type="checkbox" data-type="ERROR" checked> ERROR</label>
-                    <label class="filter-item"><input type="checkbox" data-type="INTERNAL" checked> INTERNAL</label>
-                    <label class="filter-item"><input type="checkbox" data-type="SYSTEM" checked> SYSTEM</label>
-                </div>
-                <div class="collapse-toggle" id="globalCollapse" title="Свернуть/Развернуть всё">📂</div>
             </div>
 
             <!-- Динамический контент -->
